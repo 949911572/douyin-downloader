@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Optional
 
 from rich.console import Console
@@ -14,6 +15,31 @@ from rich.progress import (
 from rich.table import Table
 
 console = Console()
+
+
+def _display_width(s: str) -> int:
+    """计算字符串在终端中的显示宽度，CJK字符计为2。"""
+    w = 0
+    for c in s:
+        if ord(c) > 0x2e80:
+            w += 2
+        else:
+            w += 1
+    return w
+
+
+def _pad_str(s: str, target_width: int, align: str = '<') -> str:
+    """按显示宽度补齐字符串。"""
+    dw = _display_width(s)
+    pad = max(target_width - dw, 0)
+    if align == '>':
+        return ' ' * pad + s
+    elif align == '^':
+        left = pad // 2
+        right = pad - left
+        return ' ' * left + s + ' ' * right
+    else:
+        return s + ' ' * pad
 
 
 class ProgressDisplay:
@@ -242,6 +268,146 @@ class ProgressDisplay:
             table.add_row("Success Rate", f"{success_rate:.1f}%")
 
         self._active_console().print(table)
+
+    def show_final_summary(self, url_results, config):
+        """Display comprehensive download summary in new format."""
+
+        now = datetime.now()
+        now_str = now.strftime('%Y-%m-%d %H:%M:%S')
+        timestamp = now.strftime('%Y%m%d_%H%M%S')
+
+        start_time = config.get('start_time', '') or '不限'
+        end_time = config.get('end_time', '') or now_str
+        target_path = config.get('path', '未设置')
+
+        lines = []
+        lines.append("=" * 64)
+        lines.append("  抖音批量下载 · 执行结果报告")
+        lines.append("=" * 64)
+        lines.append(f"  下载时间段:  {start_time}  ~  {end_time}")
+        lines.append(f"  目标目录:    {target_path}")
+        lines.append("")
+
+        # ---- 分类收集 ----
+        resolved_links = []
+        failed_links = []
+        total_all = 0
+        total_skipped = 0
+        total_success = 0
+        total_failed = 0
+
+        for url, result, status in url_results:
+            if status == "failed" or result is None:
+                failed_links.append(url)
+            else:
+                resolved_links.append((url, result))
+                total_all += result.total
+                total_skipped += result.skipped
+                total_success += result.success
+                total_failed += result.failed
+
+        resolved_count = len(resolved_links)
+        failed_count = len(failed_links)
+
+        # ---- 一，解析成功链接下载明细 ----
+        if resolved_count > 0:
+            lines.append(f"一，解析成功链接下载明细（链接总数：{resolved_count}）:")
+            lines.append(
+                f"#  {_pad_str('链接', 46)}  "
+                f"{_pad_str('抖音帐号名', 20)}  "
+                f"{_pad_str('时间段内存在视频', 20, '>')}  "
+                f"{_pad_str('跳过成功下载记录视频', 24, '>')}"
+            )
+
+            for idx, (url, result) in enumerate(resolved_links, 1):
+                author = getattr(result, 'author_name', '') or '未知'
+                total = result.total
+                skipped = result.skipped
+
+                lines.append(
+                    f"{idx}，{url:<48}  "
+                    f"{_pad_str(author, 20)}  "
+                    f"{str(total):>20}  "
+                    f"{str(skipped):>24}"
+                )
+
+                # 本次下载文件清单
+                downloaded_files = getattr(result, 'downloaded_files', [])
+                if downloaded_files:
+                    lines.append(f"     本次下载文件清单（视频数：{len(downloaded_files)}个）:")
+                    for f in downloaded_files:
+                        fname = f.get('file_name', 'unknown')
+                        fsize = f.get('file_size', 0)
+                        success = f.get('success', False)
+                        mark = '✓' if success else '✗'
+                        if success and fsize > 0:
+                            mb = fsize / (1024 * 1024)
+                            size_str = f"{mb:.1f} MB" if mb >= 0.1 else f"{fsize / 1024:.1f} KB"
+                            lines.append(f"        {mark} {fname}   ({size_str})")
+                        else:
+                            lines.append(f"        {mark} {fname}                    下载失败")
+                elif (total - skipped) > 0:
+                    lines.append(f"     本次需下载: {total - skipped} 个文件（无明细记录）")
+            lines.append("")
+
+        # ---- 二，解析失败链接 ----
+        lines.append(f"二，解析失败链接（链接总数：{failed_count}）:")
+        if failed_count > 0:
+            for idx, url in enumerate(failed_links, 1):
+                lines.append(f"  {idx}. {url}")
+        lines.append("")
+
+        lines.append("=" * 64)
+
+        print('\n'.join(lines))
+
+        self._export_failed_urls(url_results, target_path, timestamp)
+
+    def _export_failed_urls(self, url_results, target_path, timestamp):
+        """导出解析失败和下载失败的链接到文件"""
+        import os
+        from pathlib import Path
+        
+        # 确保目标目录存在
+        export_dir = Path(target_path)
+        export_dir.mkdir(parents=True, exist_ok=True)
+        
+        # 收集解析失败的链接
+        parse_failed_urls = []
+        download_failed_items = []
+        
+        for url, result, status in url_results:
+            if status == "failed" or result is None:
+                parse_failed_urls.append(url)
+            elif result.failed > 0 and hasattr(result, 'failed_items'):
+                for aweme_id, desc in result.failed_items:
+                    download_failed_items.append((aweme_id, desc, url))
+        
+        # 写入解析失败文件
+        if parse_failed_urls:
+            parse_file = export_dir / f"parse_failed_{timestamp}.txt"
+            with open(parse_file, 'w', encoding='utf-8') as f:
+                f.write(f"# 解析失败链接 - {timestamp}\n")
+                f.write(f"# 共 {len(parse_failed_urls)} 条\n\n")
+                for url in parse_failed_urls:
+                    f.write(f"{url}\n")
+            self._active_console().print(f"[green]✓[/green] 解析失败链接已导出: {parse_file}")
+        
+        # 写入下载失败文件
+        if download_failed_items:
+            download_file = export_dir / f"download_failed_{timestamp}.txt"
+            with open(download_file, 'w', encoding='utf-8') as f:
+                f.write(f"# 下载失败条目 - {timestamp}\n")
+                f.write(f"# 共 {len(download_failed_items)} 条\n\n")
+                for aweme_id, desc, url in download_failed_items:
+                    f.write(f"AWEME_ID: {aweme_id}\n")
+                    f.write(f"描述: {desc}\n")
+                    f.write(f"来源URL: {url}\n")
+                    f.write("-" * 60 + "\n")
+            self._active_console().print(f"[green]✓[/green] 下载失败条目已导出: {download_file}")
+        
+        if not parse_failed_urls and not download_failed_items:
+            self._active_console().print("[dim]无失败链接需要导出[/dim]")
 
     def print_info(self, message: str):
         self._active_console().print(f"[blue]ℹ[/blue] {message}")

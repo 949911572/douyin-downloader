@@ -32,6 +32,13 @@ class UserDownloader(BaseDownloader):
                 result.success += mode_result.success
                 result.failed += mode_result.failed
                 result.skipped += mode_result.skipped
+                result.downloaded_files.extend(mode_result.downloaded_files)
+                if mode_result.author_name:
+                    result.author_name = mode_result.author_name
+
+        # 确保 author_name 至少从 user_info 获取
+        if not result.author_name:
+            result.author_name = user_info.get("nickname", "unknown")
 
         return result
 
@@ -45,12 +52,6 @@ class UserDownloader(BaseDownloader):
         pagination_restricted = False
 
         increase_enabled = self.config.get("increase", {}).get("post", False)
-        latest_time = None
-
-        if increase_enabled and self.database:
-            latest_time = await self.database.get_latest_aweme_time(
-                user_info.get("uid")
-            )
 
         self._progress_update_step("拉取作品列表", "分页抓取中")
         while has_more:
@@ -79,15 +80,7 @@ class UserDownloader(BaseDownloader):
                     )
                 break
 
-            if increase_enabled and latest_time:
-                new_items = [
-                    a for a in aweme_items if a.get("create_time", 0) > latest_time
-                ]
-                aweme_list.extend(new_items)
-                if len(new_items) < len(aweme_items):
-                    break
-            else:
-                aweme_list.extend(aweme_items)
+            aweme_list.extend(aweme_items)
             self._progress_update_step(
                 "拉取作品列表", f"已抓取 {len(aweme_list)} 条"
             )
@@ -118,6 +111,7 @@ class UserDownloader(BaseDownloader):
         self._progress_update_step("下载作品", f"待处理 {result.total} 条")
 
         author_name = user_info.get("nickname", "unknown")
+        result.author_name = author_name
 
         async def _process_aweme(item: Dict[str, Any]):
             aweme_id = item.get("aweme_id")
@@ -125,12 +119,13 @@ class UserDownloader(BaseDownloader):
                 self._progress_advance_item("skipped", str(aweme_id or "unknown"))
                 return {"status": "skipped", "aweme_id": aweme_id}
 
-            success = await self._download_aweme_assets(item, author_name, mode="post")
-            status = "success" if success else "failed"
+            asset_result = await self._download_aweme_assets(item, author_name, mode="post")
+            status = "success" if asset_result["success"] else "failed"
             self._progress_advance_item(status, str(aweme_id or "unknown"))
             return {
                 "status": status,
                 "aweme_id": aweme_id,
+                "asset_result": asset_result,
             }
 
         download_results = await self.queue_manager.download_batch(
@@ -139,15 +134,23 @@ class UserDownloader(BaseDownloader):
 
         for entry in download_results:
             status = entry.get("status") if isinstance(entry, dict) else None
+            aweme_id = entry.get("aweme_id", "unknown") if isinstance(entry, dict) else "unknown"
             if status == "success":
                 result.success += 1
             elif status == "failed":
                 result.failed += 1
+                result.failed_items.append((aweme_id, f"用户{author_name}的作品下载失败"))
             elif status == "skipped":
                 result.skipped += 1
             else:
                 result.failed += 1
+                result.failed_items.append(("unknown", "未知状态"))
                 self._progress_advance_item("failed", "unknown")
+
+            # 收集文件信息用于最终报告
+            asset_result = entry.get("asset_result") if isinstance(entry, dict) else None
+            if isinstance(asset_result, dict):
+                result.downloaded_files.append(asset_result)
 
         return result
 
