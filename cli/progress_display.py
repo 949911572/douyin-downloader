@@ -361,53 +361,7 @@ class ProgressDisplay:
 
         print('\n'.join(lines))
 
-        self._export_failed_urls(url_results, target_path, timestamp)
-
-    def _export_failed_urls(self, url_results, target_path, timestamp):
-        """导出解析失败和下载失败的链接到文件"""
-        import os
-        from pathlib import Path
         
-        # 确保目标目录存在
-        export_dir = Path(target_path)
-        export_dir.mkdir(parents=True, exist_ok=True)
-        
-        # 收集解析失败的链接
-        parse_failed_urls = []
-        download_failed_items = []
-        
-        for url, result, status in url_results:
-            if status == "failed" or result is None:
-                parse_failed_urls.append(url)
-            elif result.failed > 0 and hasattr(result, 'failed_items'):
-                for aweme_id, desc in result.failed_items:
-                    download_failed_items.append((aweme_id, desc, url))
-        
-        # 写入解析失败文件
-        if parse_failed_urls:
-            parse_file = export_dir / f"parse_failed_{timestamp}.txt"
-            with open(parse_file, 'w', encoding='utf-8') as f:
-                f.write(f"# 解析失败链接 - {timestamp}\n")
-                f.write(f"# 共 {len(parse_failed_urls)} 条\n\n")
-                for url in parse_failed_urls:
-                    f.write(f"{url}\n")
-            self._active_console().print(f"[green]✓[/green] 解析失败链接已导出: {parse_file}")
-        
-        # 写入下载失败文件
-        if download_failed_items:
-            download_file = export_dir / f"download_failed_{timestamp}.txt"
-            with open(download_file, 'w', encoding='utf-8') as f:
-                f.write(f"# 下载失败条目 - {timestamp}\n")
-                f.write(f"# 共 {len(download_failed_items)} 条\n\n")
-                for aweme_id, desc, url in download_failed_items:
-                    f.write(f"AWEME_ID: {aweme_id}\n")
-                    f.write(f"描述: {desc}\n")
-                    f.write(f"来源URL: {url}\n")
-                    f.write("-" * 60 + "\n")
-            self._active_console().print(f"[green]✓[/green] 下载失败条目已导出: {download_file}")
-        
-        if not parse_failed_urls and not download_failed_items:
-            self._active_console().print("[dim]无失败链接需要导出[/dim]")
 
     def print_info(self, message: str):
         self._active_console().print(f"[blue]ℹ[/blue] {message}")
