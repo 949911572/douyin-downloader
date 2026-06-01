@@ -244,7 +244,7 @@ class BaseDownloader(ABC):
                 aweme_id,
                 publish_date,
             )
-        file_stem = sanitize_filename(f"{publish_date}_{desc}_{aweme_id}")
+        file_stem = sanitize_filename(f"{publish_date}_{desc}_{aweme_id}", suffix=f"_{aweme_id}")
 
         def _result(success: bool, file_path: Optional[Path] = None, expected_name: str = ""):
             """构建统一的返回值，从中提取主文件信息。

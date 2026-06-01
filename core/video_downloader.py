@@ -31,20 +31,26 @@ class VideoDownloader(BaseDownloader):
         if not aweme_data:
             logger.error(f"Failed to get video detail: {aweme_id}")
             result.failed += 1
+            result.failed_items.append((aweme_id, "获取视频详情失败"))
             self._progress_advance_item("failed", str(aweme_id))
             return result
 
-        success = await self._download_aweme(aweme_data)
-        if success:
+        author = aweme_data.get('author', {})
+        result.author_name = author.get('nickname', 'unknown')
+
+        asset_result = await self._download_aweme(aweme_data)
+        if asset_result["success"]:
             result.success += 1
             self._progress_advance_item("success", str(aweme_id))
         else:
             result.failed += 1
+            result.failed_items.append((aweme_id, "下载资源失败"))
             self._progress_advance_item("failed", str(aweme_id))
 
+        result.downloaded_files.append(asset_result)
         return result
 
-    async def _download_aweme(self, aweme_data: Dict[str, Any]) -> bool:
+    async def _download_aweme(self, aweme_data: Dict[str, Any]) -> dict:
         author = aweme_data.get('author', {})
         author_name = author.get('nickname', 'unknown')
         return await self._download_aweme_assets(aweme_data, author_name)

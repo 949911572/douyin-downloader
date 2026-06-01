@@ -164,7 +164,6 @@ async def main_async(args):
     urls = config.get_links()
     display.print_info(f"Found {len(urls)} URL(s) to process")
 
-    all_results = []
     progress_config = config.get("progress", {}) or {}
     quiet_by_config = _as_bool(progress_config.get("quiet_logs", True), default=True)
     quiet_progress_logs = quiet_by_config and not (args.verbose or args.show_warnings)
@@ -174,6 +173,7 @@ async def main_async(args):
         set_console_log_level(logging.CRITICAL)
 
     display.start_download_session(len(urls))
+    url_results = []
     try:
         for i, url in enumerate(urls, 1):
             display.start_url(i, len(urls), url)
@@ -186,26 +186,17 @@ async def main_async(args):
                 progress_reporter=display,
             )
             if result:
-                all_results.append(result)
+                url_results.append((url, result, "success"))
                 display.complete_url(result)
             else:
+                url_results.append((url, None, "failed"))
                 display.fail_url("下载失败或链接无效")
     finally:
         display.stop_download_session()
         if quiet_progress_logs:
             set_console_log_level(logging.ERROR)
 
-    if all_results:
-        from core.downloader_base import DownloadResult
-        total_result = DownloadResult()
-        for r in all_results:
-            total_result.total += r.total
-            total_result.success += r.success
-            total_result.failed += r.failed
-            total_result.skipped += r.skipped
-
-        display.print_success("\n=== Overall Summary ===")
-        display.show_result(total_result)
+    display.show_final_summary(url_results, config)
 
 
 def main():
