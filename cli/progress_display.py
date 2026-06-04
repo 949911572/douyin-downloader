@@ -312,43 +312,34 @@ class ProgressDisplay:
         # ---- 一，解析成功链接下载明细 ----
         if resolved_count > 0:
             lines.append(f"一，解析成功链接下载明细（链接总数：{resolved_count}）:")
-            lines.append(
-                f"#  {_pad_str('链接', 46)}  "
-                f"{_pad_str('抖音帐号名', 20)}  "
-                f"{_pad_str('时间段内存在视频', 20, '>')}  "
-                f"{_pad_str('跳过成功下载记录视频', 24, '>')}"
-            )
+            lines.append("")
 
             for idx, (url, result) in enumerate(resolved_links, 1):
                 author = getattr(result, 'author_name', '') or '未知'
                 total = result.total
                 skipped = result.skipped
+                success = result.success
+                failed = result.failed
 
-                lines.append(
-                    f"{idx}，{url:<48}  "
-                    f"{_pad_str(author, 20)}  "
-                    f"{str(total):>20}  "
-                    f"{str(skipped):>24}"
-                )
+                lines.append(f"  {idx}，{author}/{total}/{skipped}/{success}/{failed}")
+                lines.append("")
+                lines.append("")
 
-                # 本次下载文件清单
+            # 下载失败视频具体链接
+            failed_videos = []
+            for url, result in resolved_links:
                 downloaded_files = getattr(result, 'downloaded_files', [])
-                if downloaded_files:
-                    lines.append(f"     本次下载文件清单（视频数：{len(downloaded_files)}个）:")
-                    for f in downloaded_files:
-                        fname = f.get('file_name', 'unknown')
-                        fsize = f.get('file_size', 0)
-                        success = f.get('success', False)
-                        mark = '✓' if success else '✗'
-                        if success and fsize > 0:
-                            mb = fsize / (1024 * 1024)
-                            size_str = f"{mb:.1f} MB" if mb >= 0.1 else f"{fsize / 1024:.1f} KB"
-                            lines.append(f"        {mark} {fname}   ({size_str})")
-                        else:
-                            lines.append(f"        {mark} {fname}                    下载失败")
-                elif (total - skipped) > 0:
-                    lines.append(f"     本次需下载: {total - skipped} 个文件（无明细记录）")
-            lines.append("")
+                for f in downloaded_files:
+                    if not f.get('success', False):
+                        failed_videos.append(url)
+                        break
+
+            if failed_videos:
+                lines.append(" 2，下载失败视频具体链接：")
+                lines.append("")
+                for idx, url in enumerate(failed_videos, 1):
+                    lines.append(f"    {idx}. {url}")
+                lines.append("")
 
         # ---- 二，解析失败链接 ----
         lines.append(f"二，解析失败链接（链接总数：{failed_count}）:")
@@ -359,7 +350,18 @@ class ProgressDisplay:
 
         lines.append("=" * 64)
 
-        print('\n'.join(lines))
+        output = '\n'.join(lines)
+        print(output)
+
+        # 保存到日志文件
+        import os
+        log_dir = os.path.join(os.path.dirname(__file__), '..', 'logs')
+        os.makedirs(log_dir, exist_ok=True)
+        log_filename = datetime.now().strftime('download_%Y%m%d_%H%M%S.txt')
+        log_path = os.path.join(log_dir, log_filename)
+        with open(log_path, 'w', encoding='utf-8') as f:
+            f.write(output)
+        print(f"\n日志已保存到: {log_path}")
 
         
 

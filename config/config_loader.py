@@ -87,8 +87,59 @@ class ConfigLoader:
         return links
 
     def validate(self) -> bool:
-        if not self.get_links():
+        errors = []
+        
+        # 检查链接列表
+        links = self.get_links()
+        if not links:
+            errors.append("配置错误：未配置任何下载链接 (link)")
+        elif len(links) > 100:
+            errors.append(f"警告：链接数量过多 ({len(links)}个)，建议分批下载")
+        
+        # 检查下载路径
+        download_path = self.config.get("path")
+        if not download_path:
+            errors.append("配置错误：未配置下载路径 (path)")
+        else:
+            import os
+            path = os.path.dirname(download_path) or download_path
+            if not os.path.exists(path):
+                try:
+                    os.makedirs(path, exist_ok=True)
+                except Exception as e:
+                    errors.append(f"配置错误：无法创建下载目录 '{path}': {e}")
+        
+        # 检查时间格式
+        from datetime import datetime
+        start_time = self.config.get("start_time")
+        if start_time:
+            try:
+                datetime.strptime(start_time, "%Y-%m-%d")
+            except ValueError:
+                errors.append(f"配置错误：start_time 格式不正确，应为 YYYY-MM-DD，当前值: {start_time}")
+        
+        end_time = self.config.get("end_time")
+        if end_time:
+            try:
+                datetime.strptime(end_time, "%Y-%m-%d")
+            except ValueError:
+                errors.append(f"配置错误：end_time 格式不正确，应为 YYYY-MM-DD，当前值: {end_time}")
+        
+        # 检查重试配置
+        retry_config = self.config.get("retry", {})
+        max_retries = retry_config.get("max_retries", 3)
+        retry_delay = retry_config.get("delay", 5)
+        if not isinstance(max_retries, int) or max_retries < 0:
+            errors.append(f"配置错误：retry.max_retries 应为非负整数，当前值: {max_retries}")
+        if not isinstance(retry_delay, int) or retry_delay < 0:
+            errors.append(f"配置错误：retry.delay 应为非负整数，当前值: {retry_delay}")
+        
+        # 输出错误信息
+        if errors:
+            from utils.logger import setup_logger
+            logger = setup_logger("ConfigLoader")
+            for error in errors:
+                logger.error(error)
             return False
-        if not self.config.get("path"):
-            return False
+        
         return True

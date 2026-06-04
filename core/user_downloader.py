@@ -80,6 +80,28 @@ class UserDownloader(BaseDownloader):
                     )
                 break
 
+            # 在分页时就进行时间过滤优化
+            start_time = self.config.get("start_time")
+            if start_time:
+                from datetime import datetime
+                start_ts = int(datetime.strptime(start_time, "%Y-%m-%d").timestamp())
+                
+                # 过滤出时间范围内的视频
+                filtered_items = []
+                all_before_start = True
+                for item in aweme_items:
+                    create_time = item.get("create_time", 0)
+                    if create_time >= start_ts:
+                        filtered_items.append(item)
+                        all_before_start = False
+                
+                if all_before_start:
+                    # 本页所有视频都早于start_time，停止分页
+                    logger.info(f"所有视频均早于 {start_time}，停止分页")
+                    break
+                
+                aweme_items = filtered_items
+            
             aweme_list.extend(aweme_items)
             self._progress_update_step(
                 "拉取作品列表", f"已抓取 {len(aweme_list)} 条"

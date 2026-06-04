@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import random
 from typing import Any, Dict, List, Optional, Tuple
 from urllib.parse import urlencode
 
@@ -78,6 +79,11 @@ class DouyinAPIClient:
     async def close(self):
         if self._session and not self._session.closed:
             await self._session.close()
+
+    async def _rate_limit(self):
+        """请求限流延迟，避免触发平台限流"""
+        delay = random.uniform(0.8, 2.0)  # 0.8-2秒随机延迟
+        await asyncio.sleep(delay)
 
     async def get_session(self) -> aiohttp.ClientSession:
         await self._ensure_session()
@@ -158,6 +164,7 @@ class DouyinAPIClient:
         self, aweme_id: str, *, suppress_error: bool = False
     ) -> Optional[Dict[str, Any]]:
         await self._ensure_session()
+        await self._rate_limit()
         params = await self._default_query()
         params.update(
             {
@@ -191,6 +198,7 @@ class DouyinAPIClient:
         self, sec_uid: str, max_cursor: int = 0, count: int = 20
     ) -> Dict[str, Any]:
         await self._ensure_session()
+        await self._rate_limit()
         params = await self._default_query()
         params.update(
             {
@@ -225,6 +233,7 @@ class DouyinAPIClient:
 
     async def get_user_info(self, sec_uid: str) -> Optional[Dict[str, Any]]:
         await self._ensure_session()
+        await self._rate_limit()
         params = await self._default_query()
         params.update({"sec_user_id": sec_uid})
 

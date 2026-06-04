@@ -34,6 +34,10 @@ thread: 5
 retry_times: 3
 database: true
 
+retry:
+  max_retries: 3
+  delay: 5
+
 progress:
   quiet_logs: true
 

@@ -8,9 +8,9 @@ T = TypeVar('T')
 
 
 class RetryHandler:
-    def __init__(self, max_retries: int = 3):
+    def __init__(self, max_retries: int = 3, retry_delay: int = 5):
         self.max_retries = max_retries
-        self.retry_delays = [1, 2, 5]
+        self.retry_delays = [retry_delay * (i + 1) for i in range(max_retries)]
 
     async def execute_with_retry(self, func: Callable[..., T], *args, **kwargs) -> T:
         last_error = None

@@ -62,7 +62,11 @@ class BaseDownloader(ABC):
         self.cookie_manager = cookie_manager
         self.database = database
         self.rate_limiter = rate_limiter or RateLimiter()
-        self.retry_handler = retry_handler or RetryHandler()
+        # 从配置中读取重试参数
+        retry_config = self.config.get("retry", {})
+        max_retries = int(retry_config.get("max_retries", 3))
+        retry_delay = int(retry_config.get("delay", 5))
+        self.retry_handler = retry_handler or RetryHandler(max_retries=max_retries, retry_delay=retry_delay)
         thread_count = int(self.config.get("thread", 5) or 5)
         self.queue_manager = queue_manager or QueueManager(max_workers=thread_count)
         self.progress_reporter = progress_reporter
@@ -136,17 +140,9 @@ class BaseDownloader(ABC):
         pass
 
     async def _should_download(self, aweme_id: str) -> bool:
-        in_local = self._is_locally_downloaded(aweme_id)
-        in_db = False
         if self.database:
-            in_db = await self.database.is_downloaded(aweme_id)
-
-        if in_db:
-            return False
-
-        if in_local:
-            return False
-
+            if await self.database.is_downloaded(aweme_id):
+                return False
         return True
 
     def _is_locally_downloaded(self, aweme_id: str) -> bool:
