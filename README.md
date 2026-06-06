@@ -134,6 +134,11 @@ python run.py -c config.yml \
 - `--show-warnings`：显示 warning/error 日志
 - `-v, --verbose`：显示 info/warning/error 日志
 
+刷新 last_video_time 命令：
+
+- `--refresh-video-time`：刷新所有用户的 last_video_time（跳过4小时限制，不进行下载）
+- `--refresh-video-time "https://v.douyin.com/xxx/"`：刷新指定用户的 last_video_time
+
 ## 典型场景
 
 ### 下载单个视频
