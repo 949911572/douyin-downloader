@@ -148,6 +148,23 @@ class ProgressDisplay:
             else:
                 self._progress.advance(self._overall_task_id, 1)
 
+    def skip_url(self, reason: str):
+        if self._progress and self._url_task_id is not None:
+            self._progress.update(
+                self._url_task_id,
+                completed=self._URL_STEP_TOTAL,
+                description=self._format_url_description("跳过"),
+                detail=reason,
+            )
+
+        if self._progress and self._overall_task_id is not None:
+            if self._single_url_item_mode:
+                self._progress.update(
+                    self._overall_task_id, completed=self._item_total or 1
+                )
+            else:
+                self._progress.advance(self._overall_task_id, 1)
+
     def fail_url(self, reason: str):
         if self._progress and self._url_task_id is not None:
             self._progress.update(
@@ -269,7 +286,7 @@ class ProgressDisplay:
 
         self._active_console().print(table)
 
-    def show_final_summary(self, url_results, config):
+    def show_final_summary(self, url_results, config, skipped_urls=None):
         """Display comprehensive download summary in new format."""
 
         now = datetime.now()
@@ -308,6 +325,7 @@ class ProgressDisplay:
 
         resolved_count = len(resolved_links)
         failed_count = len(failed_links)
+        skipped_count = len(skipped_urls) if skipped_urls else 0
 
         # ---- 一，解析成功链接下载明细 ----
         if resolved_count > 0:
@@ -316,36 +334,40 @@ class ProgressDisplay:
 
             for idx, (url, result) in enumerate(resolved_links, 1):
                 author = getattr(result, 'author_name', '') or '未知'
+                sec_uid = getattr(result, 'sec_uid', '') or ''
                 total = result.total
                 skipped = result.skipped
                 success = result.success
                 failed = result.failed
 
-                lines.append(f"  {idx}，{author}/{total}/{skipped}/{success}/{failed}")
+                # 格式: 用户名[sec_uid]/视频总数/跳过数/成功数/失败数
+                if sec_uid:
+                    lines.append(f"  {idx}，{author}[{sec_uid}]/{total}/{skipped}/{success}/{failed}")
+                else:
+                    lines.append(f"  {idx}，{author}/{total}/{skipped}/{success}/{failed}")
                 lines.append("")
                 lines.append("")
 
-            # 下载失败视频具体链接
-            failed_videos = []
-            for url, result in resolved_links:
-                downloaded_files = getattr(result, 'downloaded_files', [])
-                for f in downloaded_files:
-                    if not f.get('success', False):
-                        failed_videos.append(url)
-                        break
 
-            if failed_videos:
-                lines.append(" 2，下载失败视频具体链接：")
-                lines.append("")
-                for idx, url in enumerate(failed_videos, 1):
-                    lines.append(f"    {idx}. {url}")
-                lines.append("")
 
         # ---- 二，解析失败链接 ----
         lines.append(f"二，解析失败链接（链接总数：{failed_count}）:")
         if failed_count > 0:
             for idx, url in enumerate(failed_links, 1):
                 lines.append(f"  {idx}. {url}")
+        lines.append("")
+
+        # ---- 三，智能跳过用户 ----
+        lines.append(f"三，智能跳过用户（用户总数：{skipped_count}）:")
+        if skipped_urls and len(skipped_urls) > 0:
+            for idx, item in enumerate(skipped_urls, 1):
+                # 格式: (url, username, sec_uid, "skipped")
+                if len(item) >= 3:
+                    url, username, sec_uid = item[0], item[1], item[2]
+                    if sec_uid:
+                        lines.append(f"  {idx}，{username}[{sec_uid}] - 本地记录显示4小时内已成功处理，本次跳过")
+                    else:
+                        lines.append(f"  {idx}，{username} - 本地记录显示4小时内已成功处理，本次跳过")
         lines.append("")
 
         lines.append("=" * 64)
@@ -362,8 +384,6 @@ class ProgressDisplay:
         with open(log_path, 'w', encoding='utf-8') as f:
             f.write(output)
         print(f"\n日志已保存到: {log_path}")
-
-        
 
     def print_info(self, message: str):
         self._active_console().print(f"[blue]ℹ[/blue] {message}")

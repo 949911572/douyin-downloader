@@ -37,6 +37,8 @@ class DownloadResult:
         self.skipped = 0
         self.failed_items: list = []  # [(aweme_id, desc), ...]
         self.author_name: str = ""    # 抖音帐号名
+        self.sec_uid: str = ""        # 用户唯一标识
+        self.last_video_time: str = ""  # 最新视频上传时间
         self.downloaded_files: list = []  # [{file_name, file_size, status, desc, publish_date}, ...]
 
     def __str__(self):
