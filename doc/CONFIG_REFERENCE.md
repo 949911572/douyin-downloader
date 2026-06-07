@@ -16,7 +16,7 @@
 ### path
 - **类型**：字符串
 - **默认值**：无（必填）
-- **说明**：视频保存路径
+- **说明**：视频保存路径，该目录已在 `.gitignore` 中过滤，不会被 git 提交
 - **示例**：`path: C:\Users\sb\Desktop\抖音下载\Downloaded\`
 
 ### thread

@@ -37,6 +37,7 @@ dy_downloader.db
 *.db
 *.sqlite
 *.sqlite3
+archive.txt
 
 # Local config/secrets
 config*.yml

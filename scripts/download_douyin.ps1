@@ -1,43 +1,90 @@
-# 抖音下载 - douyin-downloader 一键启动脚本
-# 使用 config.yml 中的配置批量下载
-
+# Douyin Downloader Script
 $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectDir = (Get-Item $ScriptDir).Parent.FullName
 $ConfigFile = "$ProjectDir\config.yml"
 
-Write-Host "========================================" -ForegroundColor Cyan
-Write-Host "  抖音批量下载器 douyin-downloader" -ForegroundColor Cyan
-Write-Host "  配置: $ConfigFile" -ForegroundColor DarkGray
-Write-Host "========================================" -ForegroundColor Cyan
+# Get download path using Python
+$downloadPath = python -c "
+import yaml
+with open(r'$ConfigFile', 'r', encoding='utf-8') as f:
+    config = yaml.safe_load(f)
+print(config.get('path', ''))
+"
 
-# 检查 Python
-$python = Get-Command python -ErrorAction SilentlyContinue
-if (-not $python) {
-    Write-Host "[ERROR] Python not found. Please install Python 3.9+" -ForegroundColor Red
-    pause
+$downloadPath = $downloadPath.Trim()
+
+Write-Host ""
+Write-Host "[CHECK] Download path: $downloadPath"
+
+if (-not $downloadPath) {
+    Write-Host "[ERROR] path not set in config.yml" -ForegroundColor Red
     exit 1
 }
 
-# 切换到项目目录
+# Check if directory exists, create if not
+if (-not (Test-Path $downloadPath)) {
+    Write-Host "[CHECK] Directory not found, creating..."
+    try {
+        New-Item -ItemType Directory -Path $downloadPath -Force | Out-Null
+        Write-Host "[OK] Directory created" -ForegroundColor Green
+    } catch {
+        Write-Host "[ERROR] Cannot create directory: $_" -ForegroundColor Red
+        exit 1
+    }
+}
+
+# Test if directory is writable
+$testFile = Join-Path $downloadPath ".write_test_$(Get-Date -Format 'yyyyMMddHHmmss')"
+try {
+    [System.IO.File]::WriteAllText($testFile, "test")
+    Remove-Item $testFile -Force
+    Write-Host "[OK] Directory is writable" -ForegroundColor Green
+} catch {
+    Write-Host "[ERROR] Directory not writable: $downloadPath" -ForegroundColor Red
+    Write-Host "[ERROR] Reason: $_" -ForegroundColor Red
+    Write-Host ""
+    Write-Host "Please check:" -ForegroundColor Yellow
+    Write-Host "  1. Directory exists" -ForegroundColor Yellow
+    Write-Host "  2. Current user has write permission" -ForegroundColor Yellow
+    Write-Host "  3. Sandbox has access rule for this path" -ForegroundColor Yellow
+    exit 1
+}
+
+Write-Host ""
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host "  Douyin Downloader" -ForegroundColor Cyan
+Write-Host "  Config: $ConfigFile" -ForegroundColor DarkGray
+Write-Host "========================================" -ForegroundColor Cyan
+
+# Check Python
+$python = Get-Command python -ErrorAction SilentlyContinue
+if (-not $python) {
+    Write-Host "[ERROR] Python not found. Please install Python 3.9+" -ForegroundColor Red
+    exit 1
+}
+
+# Change to project directory
 Set-Location $ProjectDir
 
-# 运行下载
+# Set UTF-8 encoding
+$env:PYTHONIOENCODING = 'utf-8'
+[Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+
+# Run download
 python run.py -c $ConfigFile --show-warnings
 $exitCode = $LASTEXITCODE
 
 Write-Host ""
 if ($exitCode -eq 0) {
-    Write-Host "=== 下载完成 ===" -ForegroundColor Green
+    Write-Host "=== Download Complete ===" -ForegroundColor Green
 } else {
-    Write-Host "=== 下载异常退出 (code: $exitCode) ===" -ForegroundColor Yellow
+    Write-Host "=== Download Failed (code: $exitCode) ===" -ForegroundColor Yellow
 }
 
-# 打开下载目录
-$downloadPath = (Get-Content $ConfigFile -Raw | ConvertFrom-Yaml).path
+# Open download directory
 if ($downloadPath) {
-    Write-Host "下载目录: $downloadPath" -ForegroundColor DarkGray
+    Write-Host "Download directory: $downloadPath" -ForegroundColor DarkGray
     explorer $downloadPath
 }
 
-pause
