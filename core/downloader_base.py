@@ -186,29 +186,8 @@ class BaseDownloader(ABC):
         self._local_aweme_ids.add(aweme_id)
 
     def _filter_by_time(self, aweme_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        start_time = self.config.get("start_time")
-        end_time = self.config.get("end_time")
-
-        if not start_time and not end_time:
-            return aweme_list
-
-        filtered: List[Dict[str, Any]] = []
-        for aweme in aweme_list:
-            create_time = aweme.get("create_time", 0)
-
-            if start_time:
-                start_ts = int(datetime.strptime(start_time, "%Y-%m-%d").timestamp())
-                if create_time < start_ts:
-                    continue
-
-            if end_time:
-                end_ts = int(datetime.strptime(end_time, "%Y-%m-%d").timestamp())
-                if create_time > end_ts:
-                    continue
-
-            filtered.append(aweme)
-
-        return filtered
+        # 时间过滤已移除，直接返回原始列表
+        return aweme_list
 
     def _limit_count(
         self, aweme_list: List[Dict[str, Any]], mode: str

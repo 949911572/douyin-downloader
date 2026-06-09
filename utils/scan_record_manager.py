@@ -125,8 +125,14 @@ class ScanRecordManager:
         # 获取原有记录（用于保留上次的视频时间）
         existing_record = self.records.get(url, {})
         
-        # 只有在有新视频时才更新 last_video_time，否则保留原有记录
-        video_time = last_video_time if last_video_time else existing_record.get('last_video_time', now)
+        # 如果 last_video_time 为空字符串，说明是单视频下载，不更新时间字段
+        if last_video_time == '':
+            video_time = ''
+            scan_time = ''
+        else:
+            # 只有在有新视频时才更新 last_video_time，否则保留原有记录
+            video_time = last_video_time if last_video_time else existing_record.get('last_video_time', now)
+            scan_time = now
         
         self.records[url] = {
             'username': username,
@@ -136,7 +142,7 @@ class ScanRecordManager:
             'failed': failed,
             'skipped': skipped,
             'parse_failed': parse_failed,
-            'last_scan_time': now,
+            'last_scan_time': scan_time,
             'last_video_time': video_time
         }
         

@@ -1,4 +1,5 @@
 from typing import Any, Dict, List
+from datetime import datetime
 
 from core.downloader_base import BaseDownloader, DownloadResult
 from utils.logger import setup_logger
@@ -57,13 +58,12 @@ class UserDownloader(BaseDownloader):
             
             latest_create_time = max(create_times, default=0)
             if latest_create_time:
-                from datetime import datetime
                 result.last_video_time = datetime.fromtimestamp(latest_create_time).strftime('%Y-%m-%d %H:%M:%S')
                 logger.info(f"刷新 last_video_time: {result.last_video_time}")
         
         return result
     
-    async def download(self, parsed_url: Dict[str, Any], last_scan_time: str = None) -> DownloadResult:
+    async def download(self, parsed_url: Dict[str, Any], last_video_time: str = None) -> DownloadResult:
         result = DownloadResult()
 
         sec_uid = parsed_url.get("sec_uid")
@@ -99,7 +99,7 @@ class UserDownloader(BaseDownloader):
         for mode in modes:
             if mode == "post":
                 self._progress_update_step("下载模式", "开始处理 post 作品")
-                mode_result = await self._download_user_post(sec_uid, user_info, last_scan_time, first_page_data)
+                mode_result = await self._download_user_post(sec_uid, user_info, last_video_time, first_page_data)
                 result.total += mode_result.total
                 result.success += mode_result.success
                 result.failed += mode_result.failed
@@ -121,7 +121,7 @@ class UserDownloader(BaseDownloader):
         return result
 
     async def _download_user_post(
-        self, sec_uid: str, user_info: Dict[str, Any], last_scan_time: str = None, first_page_data: Dict[str, Any] = None
+        self, sec_uid: str, user_info: Dict[str, Any], last_video_time: str = None, first_page_data: Dict[str, Any] = None
     ) -> DownloadResult:
         result = DownloadResult()
         aweme_list: List[Dict[str, Any]] = []
@@ -131,32 +131,19 @@ class UserDownloader(BaseDownloader):
 
         increase_enabled = self.config.get("increase", {}).get("post", False)
 
-        # 统一时间过滤阈值计算
+        # 统一时间过滤阈值计算（使用 last_video_time 作为增量更新阈值）
         filter_timestamp = 0
         filter_reason = ""
         
-        # 优先使用用户配置的 start_time
-        start_time = self.config.get("start_time")
-        if start_time:
+        # 使用增量更新时间（last_video_time）
+        if last_video_time:
             try:
-                from datetime import datetime
-                start_ts = int(datetime.strptime(start_time, "%Y-%m-%d").timestamp())
-                filter_timestamp = start_ts
-                filter_reason = f"配置时间 {start_time}"
+                last_video_timestamp = int(datetime.strptime(last_video_time, '%Y-%m-%d %H:%M:%S').timestamp())
+                filter_timestamp = last_video_timestamp
+                filter_reason = f"上次最新视频时间 {last_video_time}"
+                logger.info(f"增量更新模式：只获取 {last_video_time} 之后发布的视频")
             except ValueError:
-                logger.warning(f"无效的 start_time 格式: {start_time}")
-        
-        # 如果增量更新时间更晚，则使用增量更新时间
-        if last_scan_time:
-            try:
-                from datetime import datetime
-                last_video_timestamp = int(datetime.strptime(last_scan_time, '%Y-%m-%d %H:%M:%S').timestamp())
-                if last_video_timestamp > filter_timestamp:
-                    filter_timestamp = last_video_timestamp
-                    filter_reason = f"上次扫描时间 {last_scan_time}"
-                    logger.info(f"增量更新模式：只获取 {last_scan_time} 之后发布的视频")
-            except ValueError:
-                logger.warning(f"无效的上次最新视频时间格式: {last_scan_time}")
+                logger.warning(f"无效的上次最新视频时间格式: {last_video_time}")
 
         self._progress_update_step("拉取作品列表", "分页抓取中")
         
@@ -264,7 +251,7 @@ class UserDownloader(BaseDownloader):
 
         if pagination_restricted:
             self._progress_update_step("拉取作品列表", "分页受限，尝试浏览器回补")
-            await self._recover_user_post_with_browser(sec_uid, user_info, aweme_list)
+            await self._recover_user_post_with_browser(sec_uid, user_info, aweme_list, filter_timestamp, filter_reason)
 
         aweme_list = self._filter_by_time(aweme_list)
         aweme_list = self._limit_count(aweme_list, "post")
@@ -373,6 +360,8 @@ class UserDownloader(BaseDownloader):
         sec_uid: str,
         user_info: Dict[str, Any],
         aweme_list: List[Dict[str, Any]],
+        filter_timestamp: int = 0,
+        filter_reason: str = "",
     ) -> None:
         browser_cfg = self.config.get("browser_fallback", {}) or {}
         if not browser_cfg.get("enabled", True):
@@ -467,6 +456,14 @@ class UserDownloader(BaseDownloader):
                     detail_sec_uid,
                 )
                 continue
+            
+            # 时间过滤：只添加晚于 filter_timestamp 的视频
+            if filter_timestamp > 0:
+                create_time = detail.get("create_time", 0)
+                if create_time < filter_timestamp:
+                    logger.debug(f"跳过早于 {filter_reason} 的视频: aweme_id={aweme_id}, create_time={create_time}")
+                    continue
+            
             aweme_list.append(detail)
 
         self._progress_update_step(
@@ -490,3 +487,11 @@ class UserDownloader(BaseDownloader):
                 detail_failed,
                 total_missing,
             )
+
+        # 对浏览器回补的视频进行时间过滤
+        if filter_timestamp > 0:
+            original_length = len(aweme_list)
+            aweme_list[:] = [item for item in aweme_list if item.get("create_time", 0) >= filter_timestamp]
+            filtered_count = original_length - len(aweme_list)
+            if filtered_count > 0:
+                logger.info(f"浏览器回补后过滤了 {filtered_count} 个早于 {filter_reason} 的视频")

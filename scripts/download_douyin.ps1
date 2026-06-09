@@ -1,8 +1,25 @@
 # Douyin Downloader Script
+param(
+    [string]$ConfigFile = ""
+)
+
 $ErrorActionPreference = "Stop"
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $ProjectDir = (Get-Item $ScriptDir).Parent.FullName
-$ConfigFile = "$ProjectDir\config.yml"
+
+# Use default config if not specified
+if (-not $ConfigFile) {
+    $ConfigFile = "$ProjectDir\config.yml"
+} elseif (-not [System.IO.Path]::IsPathRooted($ConfigFile)) {
+    # Convert relative path to absolute path
+    $ConfigFile = Join-Path $ProjectDir $ConfigFile
+}
+
+# Check if config file exists
+if (-not (Test-Path $ConfigFile)) {
+    Write-Host "[ERROR] Config file not found: $ConfigFile" -ForegroundColor Red
+    exit 1
+}
 
 # Get download path using Python
 $downloadPath = python -c "
@@ -82,9 +99,5 @@ if ($exitCode -eq 0) {
     Write-Host "=== Download Failed (code: $exitCode) ===" -ForegroundColor Yellow
 }
 
-# Open download directory
-if ($downloadPath) {
-    Write-Host "Download directory: $downloadPath" -ForegroundColor DarkGray
-    explorer $downloadPath
-}
+Write-Host "Download directory: $downloadPath" -ForegroundColor DarkGray
 

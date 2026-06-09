@@ -37,7 +37,7 @@ async def download_url(
     cookie_manager: CookieManager,
     database: Database = None,
     progress_reporter: ProgressDisplay = None,
-    last_scan_time: str = None,  # 上次最新视频时间，用于增量更新
+    last_video_time: str = None,  # 上次最新视频时间，用于增量更新
     parsed_url: Dict[str, Any] = None,  # 预解析的URL结果
     api_client=None,  # 复用的API客户端
 ):
@@ -111,9 +111,9 @@ async def download_url(
         if progress_reporter:
             progress_reporter.advance_step("执行下载", "开始拉取与下载资源")
         
-        # 传递 last_scan_time 支持增量更新
-        if last_scan_time and parsed_url['type'] == 'user':
-            result = await downloader.download(parsed_url, last_scan_time)
+        # 传递 last_video_time 支持增量更新
+        if last_video_time and parsed_url['type'] == 'user':
+            result = await downloader.download(parsed_url, last_video_time)
         else:
             result = await downloader.download(parsed_url)
 
@@ -260,7 +260,7 @@ async def main_async(args):
                 cookie_manager,
                 database,
                 progress_reporter=display,
-                last_scan_time=last_video_time,  # 使用 last_video_time 作为增量更新阈值
+                last_video_time=last_video_time,  # 使用 last_video_time 作为增量更新阈值
                 parsed_url=parsed,
                 api_client=api_client,
             )
@@ -268,25 +268,29 @@ async def main_async(args):
                 url_results.append((url, result, "success"))
                 display.complete_url(result)
                 
-                # 更新本地扫描记录
-                author_name = getattr(result, 'author_name', '') or '未知'
-                sec_uid = getattr(result, 'sec_uid', '') or ''
-                last_video_time = getattr(result, 'last_video_time', '') or ''
-                scan_record_manager.update_record(
-                    url,
-                    author_name,
-                    sec_uid,
-                    result.total,
-                    result.success,
-                    result.failed,
-                    result.skipped,
-                    False,
-                    last_video_time
-                )
+                # 只有用户主页链接才更新扫描记录（单视频链接不写入 scan_records.json）
+                if parsed['type'] == 'user':
+                    author_name = getattr(result, 'author_name', '') or '未知'
+                    sec_uid = getattr(result, 'sec_uid', '') or ''
+                    last_video_time = getattr(result, 'last_video_time', '') or ''
+                    
+                    scan_record_manager.update_record(
+                        url,
+                        author_name,
+                        sec_uid,
+                        result.total,
+                        result.success,
+                        result.failed,
+                        result.skipped,
+                        False,
+                        last_video_time
+                    )
             else:
                 url_results.append((url, None, "failed"))
                 display.fail_url("下载失败或链接无效")
-                scan_record_manager.mark_parse_failed(url)
+                # 只有用户主页链接才记录失败状态（单视频链接不写入 scan_records.json）
+                if parsed['type'] == 'user':
+                    scan_record_manager.mark_parse_failed(url)
     
     display.stop_download_session()
     if quiet_progress_logs:

@@ -109,22 +109,6 @@ class ConfigLoader:
                 except Exception as e:
                     errors.append(f"配置错误：无法创建下载目录 '{path}': {e}")
         
-        # 检查时间格式
-        from datetime import datetime
-        start_time = self.config.get("start_time")
-        if start_time:
-            try:
-                datetime.strptime(start_time, "%Y-%m-%d")
-            except ValueError:
-                errors.append(f"配置错误：start_time 格式不正确，应为 YYYY-MM-DD，当前值: {start_time}")
-        
-        end_time = self.config.get("end_time")
-        if end_time:
-            try:
-                datetime.strptime(end_time, "%Y-%m-%d")
-            except ValueError:
-                errors.append(f"配置错误：end_time 格式不正确，应为 YYYY-MM-DD，当前值: {end_time}")
-        
         # 检查重试配置
         retry_config = self.config.get("retry", {})
         max_retries = retry_config.get("max_retries", 3)

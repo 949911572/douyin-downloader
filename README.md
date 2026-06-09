@@ -2,6 +2,12 @@
 
 ![douyin-downloader](https://socialify.git.ci/jiji262/douyin-downloader/image?custom_description=%E6%8A%96%E9%9F%B3%E6%89%B9%E9%87%8F%E4%B8%8B%E8%BD%BD%E5%B7%A5%E5%85%B7%EF%BC%8C%E5%8E%BB%E6%B0%B4%E5%8D%B0%EF%BC%8C%E6%94%AF%E6%8C%81%E8%A7%86%E9%A2%91%E3%80%81%E5%9B%BE%E9%9B%86%E3%80%81%E4%BD%9C%E8%80%85%E4%B8%BB%E9%A1%B5%E6%89%B9%E9%87%8F%E4%B8%8B%E8%BD%BD%E3%80%82&description=1&font=Jost&forks=1&logo=https%3A%2F%2Fraw.githubusercontent.com%2Fjiji262%2Fdouyin-downloader%2Frefs%2Fheads%2FV1.0%2Fimg%2Flogo.png&name=1&owner=1&pattern=Circuit+Board&pulls=1&stargazers=1&theme=Light)
 
+> 🔄 **本项目是 jiji262/douyin-downloader 的 fork 版本**，主要修改：
+> - 移除了 `start_time` / `end_time` 时间范围配置
+> - 改用 `scan_records.json` 中的 `last_scan_time` 实现增量更新
+> - 单视频下载不写入扫描记录，仅用户主页下载才记录
+> - 适合定期执行下载任务，自动获取上次扫描之后发布的新视频
+
 一个面向实用场景的抖音下载工具，支持单条作品下载和作者主页批量下载，默认带进度展示、重试、数据库去重和浏览器兜底能力。
 
 > 当前文档对应 **V2.0（main 分支）**。  
@@ -24,7 +30,6 @@
 - 可选视频转写（`transcript`，调用 OpenAI Transcriptions API）
 - 并发下载、失败重试、速率限制
 - SQLite 去重与增量下载（`increase.post`）
-- 时间过滤（`start_time` / `end_time`，当前用于 `post`）
 - 翻页受限时浏览器兜底抓取（支持人工过验证）
 - 进度条展示（支持 `progress.quiet_logs` 静默模式）
 
@@ -110,9 +115,30 @@ transcript:
 
 ## 使用方式
 
-### 使用配置文件运行
+### 方式一：使用 PowerShell 脚本（推荐）
 
 ```bash
+# 使用默认配置
+.\scripts\download_douyin.ps1
+
+# 指定配置文件
+.\scripts\download_douyin.ps1 -ConfigFile config_temp.yml
+```
+
+**PowerShell 脚本优势**：
+- ✅ 自动检查配置文件是否存在
+- ✅ 自动创建下载目录（如果不存在）
+- ✅ 验证下载目录写入权限
+- ✅ 自动设置 UTF-8 编码，避免中文乱码
+- ✅ 下载完成后自动打开下载目录
+
+### 方式二：直接运行 Python 脚本
+
+```bash
+# 使用默认配置
+python run.py
+
+# 指定配置文件
 python run.py -c config.yml
 ```
 
@@ -173,6 +199,122 @@ number:
   post: 0
 ```
 
+### 增量更新下载（定期执行）
+
+本版本默认支持增量更新，无需额外配置。
+
+```yaml
+link:
+  - https://www.douyin.com/user/MS4wLjABAAAAxxxx
+mode:
+  - post
+number:
+  post: 0  # 0 表示不限制数量
+```
+
+**增量更新工作机制：**
+
+1. 首次下载：获取用户所有作品，并记录 `last_video_time`（最新视频发布时间）到 `data/scan_records.json`
+2. 后续下载：仅获取 `last_video_time` 之后发布的新视频
+3. 单视频/图文链接：不写入扫描记录，不影响增量更新
+
+**扫描记录文件位置：** `data/scan_records.json`
+
+**刷新视频时间（不下载）：**
+
+```bash
+# 刷新所有用户的 last_video_time（跳过4小时限制）
+python run.py -c config.yml --refresh-video-time
+
+# 刷新指定用户的 last_video_time
+python run.py -c config.yml --refresh-video-time "https://v.douyin.com/xxx/"
+```
+
+**注意事项：**
+- 仅用户主页链接（`/user/{sec_uid}`）才会记录扫描时间
+- 删除 `scan_records.json` 可重新开始全量下载
+- 可手动修改 `last_video_time` 字段调整增量更新起始时间
+
+**跳过阈值配置（`skip_threshold_hours`）：**
+
+默认配置文件中有一个 `skip_threshold_hours` 参数，用于控制短时间内重复扫描的行为：
+
+```yaml
+# config.yml
+skip_threshold_hours: 4  # 4小时内已处理过的用户将被跳过
+```
+
+| 参数值 | 行为 |
+|--------|------|
+| `4`（默认） | 4小时内已成功处理的用户将被跳过 |
+| `0` | 不跳过任何用户，每次都执行下载 |
+| 空值 | 不跳过任何用户，每次都执行下载 |
+
+**为什么下载不到新视频？**
+
+如果发现下载脚本没有下载到新视频，可能是以下原因：
+
+1. **`skip_threshold_hours` 限制**：用户在短时间内已处理过，被跳过了
+   - 解决方案：设置 `skip_threshold_hours:` 为空或 `0`
+
+2. **`last_video_time` 已更新**：上次扫描时已经记录了最新视频时间，新视频还未发布
+   - 解决方案：等待新视频发布，或手动修改 `scan_records.json` 中的 `last_video_time`
+
+3. **数据库去重**：视频已在数据库中标记为已下载
+   - 解决方案：使用 `scripts/mark_failed_as_success.py` 检查失败记录，或删除数据库中的记录
+
+## 辅助脚本说明
+
+### scripts 目录下的脚本文件
+
+| 脚本名称 | 类型 | 说明 |
+|----------|------|------|
+| `download_douyin.ps1` | PowerShell | **主下载脚本**，推荐的启动方式 |
+| `refresh_cookies.ps1` | PowerShell | Cookie 刷新脚本，打开浏览器扫码登录 |
+| `_refresh_cookies.py` | Python | Cookie 刷新核心逻辑（被 refresh_cookies.ps1 调用） |
+| `mark_failed_as_success.py` | Python | 将失败视频标记为已下载 |
+
+### 1. Cookie 刷新脚本
+
+当 Cookie 过期导致下载失败时使用：
+
+```bash
+# 方式1：使用 PowerShell 脚本（推荐）
+.\scripts\refresh_cookies.ps1
+
+# 方式2：直接运行 Python 脚本
+python scripts/_refresh_cookies.py
+```
+
+**功能特点**：
+- 自动打开 Chrome 浏览器
+- 等待用户扫码登录
+- 自动提取 Cookie（包括 msToken）
+- 自动更新 `config.yml` 文件
+
+### 2. 失败视频处理脚本
+
+处理下载失败的视频，将其标记为已下载：
+
+```bash
+# 处理所有失败文件
+python scripts/mark_failed_as_success.py
+
+# 处理指定失败文件
+python scripts/mark_failed_as_success.py data/failed_videos/failed_20240101.json
+
+# 处理但不清空失败文件
+python scripts/mark_failed_as_success.py --no-clear
+
+# 显示帮助
+python scripts/mark_failed_as_success.py --help
+```
+
+**功能特点**：
+- 自动查找 `data/failed_videos/` 目录下的失败文件
+- 将失败视频标记为已下载（更新数据库）
+- 可选是否清空失败文件
+
 ## 可选功能：视频转写（transcript）
 
 当前实现仅对**视频作品**生效（图文不会生成转写）。
@@ -211,7 +353,6 @@ export OPENAI_API_KEY="sk-xxxx"
 - `mode`：当前仅 `post` 生效
 - `number`：当前仅 `number.post` 生效
 - `increase`：当前仅 `increase.post` 生效
-- `start_time/end_time`：当前用于 `post` 时间过滤
 - `folderstyle`：控制按作品维度创建子目录
 - `browser_fallback.*`：`post` 翻页受限时启用浏览器兜底
 - `progress.quiet_logs`：进度阶段静默日志，减少刷屏

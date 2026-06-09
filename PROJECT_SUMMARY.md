@@ -20,7 +20,6 @@
 - 并发下载、重试、速率限制
 - 基于作品发布时间（`create_time`）生成文件名/目录日期前缀（`YYYY-MM-DD_...`）
 - 生成独立下载清单文件 `download_manifest.jsonl`
-- 时间过滤（`start_time` / `end_time`）
 - 数量限制（当前对 `number.post` 生效）
 - SQLite 去重与增量下载（当前对 `increase.post` 生效）
 - 翻页受限时的浏览器兜底（采集 `aweme_id` 并补全详情）

@@ -293,15 +293,12 @@ class ProgressDisplay:
         now_str = now.strftime('%Y-%m-%d %H:%M:%S')
         timestamp = now.strftime('%Y%m%d_%H%M%S')
 
-        start_time = config.get('start_time', '') or '不限'
-        end_time = config.get('end_time', '') or now_str
         target_path = config.get('path', '未设置')
 
         lines = []
         lines.append("=" * 64)
         lines.append("  抖音批量下载 · 执行结果报告")
         lines.append("=" * 64)
-        lines.append(f"  下载时间段:  {start_time}  ~  {end_time}")
         lines.append(f"  目标目录:    {target_path}")
         lines.append("")
 

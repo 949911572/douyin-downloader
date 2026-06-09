@@ -6,8 +6,6 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "cover": True,
     "avatar": True,
     "json": True,
-    "start_time": "",
-    "end_time": "",
     "folderstyle": True,
     "mode": ["post"],
     "number": {

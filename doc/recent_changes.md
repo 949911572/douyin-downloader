@@ -10,6 +10,52 @@
 
 ---
 
+## 2026-06-09
+
+### 1. 时间过滤机制优化：改用 last_video_time
+
+- **背景**：之前使用 `last_scan_time` 作为时间过滤阈值，用户反馈过滤不准确
+- **修改内容**：
+  - 将时间过滤机制从 `last_scan_time` 改为 `last_video_time`
+  - 更新 `cli/main.py`、`core/user_downloader.py` 中的参数名
+  - 在浏览器回补方法 `_recover_user_post_with_browser()` 中添加时间过滤逻辑
+- **效果**：使用实际视频发布时间作为过滤阈值，更加准确
+
+### 2. 修复浏览器回补时间过滤缺失问题
+
+- **问题**：浏览器回补获取的视频没有应用时间过滤，导致下载到旧视频
+- **修复**：在 `_recover_user_post_with_browser()` 方法中添加时间过滤检查
+- **效果**：浏览器回补的视频也会被正确过滤，只保留最新视频
+
+### 3. 新增失败视频标记脚本
+
+- **功能**：创建 `scripts/mark_failed_as_success.py` 脚本，方便将失败视频标记为已下载
+- **特性**：
+  - 自动查找 `data/failed_videos/` 目录下所有失败文件
+  - 支持指定单个失败文件处理
+  - 处理完成后可自动清空失败文件
+  - 提供详细的处理统计信息
+- **使用方式**：
+  ```bash
+  python scripts/mark_failed_as_success.py          # 处理所有失败文件
+  python scripts/mark_failed_as_success.py --help    # 显示帮助
+  ```
+
+### 4. 文档更新
+
+- **更新内容**：
+  - 更新 `README.md`，添加 `skip_threshold_hours` 参数说明和常见问题排查
+  - 更新 `doc/CONFIG_REFERENCE.md`，详细说明 `skip_threshold_hours` 参数的用法和注意事项
+- **目的**：帮助用户理解增量更新机制，解决"下载不到新视频"的疑惑
+
+### 5. 修复配置文件指定参数问题
+
+- **问题**：`download_url()` 函数参数名不匹配导致脚本报错
+- **修复**：将参数从 `last_scan_time` 统一改为 `last_video_time`
+- **效果**：脚本运行正常，配置文件指定功能可用
+
+---
+
 ## 2026-06-06
 
 ### 1. 修复 last_video_time 传递问题
@@ -23,9 +69,8 @@
   - 在 `ScanRecordManager` 类中添加 `update_last_video_time()` 方法：只更新时间字段，保留原有下载统计数据
   - 在 CLI 中添加 `--refresh-video-time` 命令：
     - `--refresh-video-time` - 刷新所有用户的 last_video_time
-    - `--refresh-video-time "https://v.douyin.com/xxx/"` - 刷新指定用户的 last_video_time
+  - `--refresh-video-time "https://v.douyin.com/xxx/"` - 刷新指定用户的 last_video_time
   - 自动跳过4小时限制（通过设置 `skip_threshold_hours=0`）
-  - 不使用 `start_time` 配置，始终获取最新视频时间
 
 ---
 
@@ -49,8 +94,7 @@
 ### 3. 重构合并时间过滤机制
 - **功能**：合并时间过滤优化与增量更新模式，统一逻辑
 - **具体实现**：
-  - 统一时间过滤阈值计算（用户配置的 `start_time` 或增量更新的 `last_scan_time`）
-  - 自动选择更大的时间戳（更晚的时间）作为过滤阈值
+  - 统一时间过滤阈值计算（增量更新的 `last_scan_time`）
   - 在分页过程中实时检查视频发布时间，发现所有视频都早于阈值时立即停止分页
   - 减少代码重复，提高可维护性
 
@@ -117,6 +161,6 @@
 
 ---
 
-*文档版本: v1.1*
+*文档版本: v1.2*
 *创建时间: 2026-06-05*
-*最后更新: 2026-06-06*
+*最后更新: 2026-06-09*

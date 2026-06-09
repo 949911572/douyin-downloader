@@ -8,9 +8,6 @@ cover: true
 avatar: true
 json: true
 
-start_time: ""
-end_time: ""
-
 folderstyle: true
 
 mode:
