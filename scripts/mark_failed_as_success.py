@@ -65,9 +65,9 @@ def mark_failed_as_success(failed_file=None, clear_file=True):
     
     print(f"找到 {len(failed_videos)} 个失败视频，分布在 {len(files_processed)} 个文件中")
     
-    # 连接数据库
+    # 连接数据库（与主程序使用相同的数据库路径）
     try:
-        conn = sqlite3.connect('data/douyin_downloader.db')
+        conn = sqlite3.connect('dy_downloader.db')
         cursor = conn.cursor()
     except Exception as e:
         print(f"数据库连接失败: {e}")

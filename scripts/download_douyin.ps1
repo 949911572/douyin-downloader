@@ -88,6 +88,9 @@ Set-Location $ProjectDir
 $env:PYTHONIOENCODING = 'utf-8'
 [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
 
+# Set flag to indicate running from PowerShell script
+$env:DOUYIN_DOWNLOADER_LAUNCHED_BY_PS1 = 'true'
+
 # Run download
 python run.py -c $ConfigFile --show-warnings
 $exitCode = $LASTEXITCODE

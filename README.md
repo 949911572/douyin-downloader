@@ -142,6 +142,8 @@ python run.py
 python run.py -c config.yml
 ```
 
+> **注意**：如果直接运行 `python run.py`，脚本会检测到未使用推荐方式，并显示警告提示。建议使用 PowerShell 脚本以获得最佳体验。
+
 ### 命令行追加参数
 
 ```bash
