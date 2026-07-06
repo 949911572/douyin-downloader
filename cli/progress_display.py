@@ -451,8 +451,9 @@ class ProgressDisplay:
         failed_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'data', 'failed_videos'))
 
         print(f"\n详细下载日志已保存到: {log_path}")
-        print(f"失败视频记录已保存到: {failed_dir}")
-        print(f"当前未处理失败视频总数: {failed_count_total}")
+        if failed_count_total > 0:
+            print(f"失败视频记录已保存到: {failed_dir}")
+            print(f"当前未处理失败视频总数: {failed_count_total}")
 
     def print_info(self, message: str):
         if self._is_running:

@@ -68,7 +68,10 @@ class FailedVideoManager:
                 file_path = os.path.join(self.failed_dir, filename)
                 try:
                     with open(file_path, 'r', encoding='utf-8') as f:
-                        data = json.load(f)
+                        content = f.read().strip()
+                        if not content:
+                            continue
+                        data = json.loads(content)
                         if status:
                             data = [item for item in data if item.get('status') == status]
                         all_videos.extend(data)
