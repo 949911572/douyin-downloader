@@ -106,7 +106,6 @@ class FailedVideoManager:
                     if updated:
                         with open(file_path, 'w', encoding='utf-8') as f:
                             json.dump(data, f, ensure_ascii=False, indent=2)
-                        break
                 except Exception as e:
                     print(f"更新失败视频状态失败: {filename}, error: {e}")
         

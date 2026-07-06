@@ -12,6 +12,7 @@ from control import QueueManager, RateLimiter, RetryHandler
 from core.api_client import DouyinAPIClient
 from core.transcript_manager import TranscriptManager
 from storage import Database, FileManager, MetadataHandler
+from utils.error_logger import ErrorLogger
 from utils.logger import setup_logger
 from utils.validators import sanitize_filename
 
@@ -40,6 +41,7 @@ class DownloadResult:
         self.sec_uid: str = ""        # 用户唯一标识
         self.last_video_time: str = ""  # 最新视频上传时间
         self.downloaded_files: list = []  # [{file_name, file_size, status, desc, publish_date}, ...]
+        self.pagination_restricted: bool = False  # 分页是否受限，需要手动浏览器扫描
 
     def __str__(self):
         return f"Total: {self.total}, Success: {self.success}, Failed: {self.failed}, Skipped: {self.skipped}"
@@ -57,6 +59,7 @@ class BaseDownloader(ABC):
         retry_handler: Optional[RetryHandler] = None,
         queue_manager: Optional[QueueManager] = None,
         progress_reporter: Optional[ProgressReporter] = None,
+        error_logger: Optional[ErrorLogger] = None,
     ):
         self.config = config
         self.api_client = api_client
@@ -69,13 +72,14 @@ class BaseDownloader(ABC):
         max_retries = int(retry_config.get("max_retries", 3))
         retry_delay = int(retry_config.get("delay", 5))
         self.retry_handler = retry_handler or RetryHandler(max_retries=max_retries, retry_delay=retry_delay)
-        thread_count = int(self.config.get("thread", 5) or 5)
+        thread_count = int(self.config.get("thread", 1) or 1)
         self.queue_manager = queue_manager or QueueManager(max_workers=thread_count)
         self.progress_reporter = progress_reporter
         self.metadata_handler = MetadataHandler()
         self.transcript_manager = TranscriptManager(
             self.config, self.file_manager, self.database
         )
+        self.error_logger = error_logger or ErrorLogger()
         self._local_aweme_ids: Optional[set[str]] = None
         self._aweme_id_pattern = re.compile(r"(?<!\d)(\d{15,20})(?!\d)")
         self._local_media_suffixes = {
@@ -135,6 +139,12 @@ class BaseDownloader(ABC):
         headers["User-Agent"] = user_agent or self.api_client.headers.get(
             "User-Agent", ""
         )
+
+        # 传递 Cookie，避免图片CDN返回403
+        cookie_str = self.cookie_manager.get_cookie_string()
+        if cookie_str:
+            headers["Cookie"] = cookie_str
+
         return headers
 
     @abstractmethod
@@ -208,9 +218,11 @@ class BaseDownloader(ABC):
         aweme_id = aweme_data.get("aweme_id")
         if not aweme_id:
             logger.error("Missing aweme_id in aweme data")
-            return {"success": False, "file_name": "", "file_size": 0, "desc": "", "publish_date": ""}
+            return {"success": False, "file_name": "", "file_size": 0, "desc": "", "publish_date": "", "error": "Missing aweme_id"}
 
         desc = (aweme_data.get("desc", "no_title") or "").strip() or "no_title"
+        if "\n" in desc:
+            desc = desc.split("\n")[0].strip() or "no_title"
         publish_ts, publish_date = self._resolve_publish_time(
             aweme_data.get("create_time")
         )
@@ -221,28 +233,7 @@ class BaseDownloader(ABC):
                 aweme_id,
                 publish_date,
             )
-        file_stem = sanitize_filename(f"{publish_date}_{desc}_{aweme_id}", suffix=f"_{aweme_id}")
-
-        def _result(success: bool, file_path: Optional[Path] = None, expected_name: str = ""):
-            """构建统一的返回值，从中提取主文件信息。
-            success=True 时必须传 file_path 以获取文件名和大小；
-            success=False 时用 expected_name（为空则默认为 file_stem.mp4）。
-            """
-            if success and file_path is not None and file_path.exists():
-                return {
-                    "success": True,
-                    "file_name": file_path.name,
-                    "file_size": file_path.stat().st_size,
-                    "desc": desc,
-                    "publish_date": publish_date,
-                }
-            return {
-                "success": False,
-                "file_name": expected_name or f"{file_stem}.mp4",
-                "file_size": 0,
-                "desc": desc,
-                "publish_date": publish_date,
-            }
+        file_stem = sanitize_filename(f"{publish_date}_{desc}")
 
         save_dir = self.file_manager.get_save_path(
             author_name=author_name,
@@ -252,6 +243,35 @@ class BaseDownloader(ABC):
             folderstyle=self.config.get("folderstyle", True),
             download_date=publish_date,
         )
+
+        def _result(success: bool, file_path: Optional[Path] = None, expected_name: str = "", file_count: int = 0):
+            """构建统一的返回值，从中提取主文件信息。
+            success=True 时必须传 file_path 以获取文件名和大小；
+            success=False 时用 expected_name（为空则默认为 file_stem.mp4）。
+            """
+            if success and file_path is not None and file_path.exists():
+                return {
+                    "success": True,
+                    "file_name": file_path.name,
+                    "file_size": file_path.stat().st_size,
+                    "file_count": file_count or len(downloaded_files),
+                    "desc": desc,
+                    "publish_date": publish_date,
+                    "aweme_id": aweme_id,
+                    "save_dir": str(save_dir),
+                }
+            return {
+                "success": False,
+                "file_name": expected_name or f"{file_stem}.mp4",
+                "file_size": 0,
+                "file_count": 0,
+                "desc": desc,
+                "publish_date": publish_date,
+                "aweme_id": aweme_id,
+                "save_dir": str(save_dir),
+                "error": None,
+            }
+
         downloaded_files: List[Path] = []
 
         session = await self.api_client.get_session()
@@ -262,14 +282,54 @@ class BaseDownloader(ABC):
             video_info = self._build_no_watermark_url(aweme_data)
             if not video_info:
                 logger.error(f"No playable video URL found for aweme {aweme_id}")
-                return _result(False)
+                self.error_logger.log_error(
+                    aweme_id,
+                    "no_video_url",
+                    "No playable video URL found",
+                    aweme_data=aweme_data,
+                    extra={"media_type": media_type},
+                )
+                return {"success": False, "file_name": f"{file_stem}.mp4", "file_size": 0, "file_count": 0, "desc": desc, "publish_date": publish_date, "aweme_id": aweme_id, "save_dir": str(save_dir), "error": "视频无可播放URL"}
 
             video_url, video_headers = video_info
             video_path = save_dir / f"{file_stem}.mp4"
-            if not await self._download_with_retry(
+            
+            download_success, download_error = await self._download_with_retry(
                 video_url, video_path, session, headers=video_headers
-            ):
-                return _result(False)
+            )
+            
+            if not download_success:
+                logger.warning(f"Download failed, retrying with fresh video detail: {aweme_id}")
+                fresh_detail = await self.api_client.get_video_detail(aweme_id, suppress_error=True)
+                if fresh_detail:
+                    fresh_video_info = self._build_no_watermark_url(fresh_detail)
+                    if fresh_video_info:
+                        fresh_url, fresh_headers = fresh_video_info
+                        download_success, download_error = await self._download_with_retry(
+                            fresh_url, video_path, session, headers=fresh_headers
+                        )
+                        if download_success:
+                            logger.info(f"Download succeeded with fresh URL: {aweme_id}")
+            
+            if not download_success:
+                self.error_logger.log_error(
+                    aweme_id,
+                    "video_download_failed",
+                    f"Video download failed after retry: {download_error}",
+                    aweme_data=aweme_data,
+                    extra={"media_type": media_type, "video_url": video_url[:120] if video_url else ""},
+                )
+                return {
+                    "success": False,
+                    "file_name": f"{file_stem}.mp4",
+                    "file_size": 0,
+                    "file_count": 0,
+                    "desc": desc,
+                    "publish_date": publish_date,
+                    "aweme_id": aweme_id,
+                    "save_dir": str(save_dir),
+                    "error": download_error,
+                }
             downloaded_files.append(video_path)
 
             if self.config.get("cover"):
@@ -278,14 +338,22 @@ class BaseDownloader(ABC):
                 )
                 if cover_url:
                     cover_path = save_dir / f"{file_stem}_cover.jpg"
-                    if await self._download_with_retry(
+                    cover_success, _ = await self._download_with_retry(
                         cover_url,
                         cover_path,
                         session,
                         headers=self._download_headers(),
                         optional=True,
-                    ):
+                    )
+                    if cover_success:
                         downloaded_files.append(cover_path)
+                    else:
+                        self.error_logger.log_error(
+                            aweme_id,
+                            "cover_download_failed",
+                            "Failed downloading cover image",
+                            aweme_data=aweme_data,
+                        )
 
             if self.config.get("music"):
                 music_url = self._extract_first_url(
@@ -293,61 +361,129 @@ class BaseDownloader(ABC):
                 )
                 if music_url:
                     music_path = save_dir / f"{file_stem}_music.mp3"
-                    if await self._download_with_retry(
+                    music_success, _ = await self._download_with_retry(
                         music_url,
                         music_path,
                         session,
                         headers=self._download_headers(),
                         optional=True,
-                    ):
+                    )
+                    if music_success:
                         downloaded_files.append(music_path)
+                    else:
+                        self.error_logger.log_error(
+                            aweme_id,
+                            "music_download_failed",
+                            "Failed downloading background music",
+                            aweme_data=aweme_data,
+                        )
 
         elif media_type == "gallery":
-            image_urls = self._collect_image_urls(aweme_data)
-            if not image_urls:
+            image_url_groups = self._collect_image_urls(aweme_data)
+            if not image_url_groups:
                 logger.error(f"No images found for aweme {aweme_id}")
-                return _result(False)
-
-            first_image_path: Optional[Path] = None
-            for index, image_url in enumerate(image_urls, start=1):
-                suffix = Path(urlparse(image_url).path).suffix or ".jpg"
-                image_path = save_dir / f"{file_stem}_{index}{suffix}"
-                success = await self._download_with_retry(
-                    image_url,
-                    image_path,
-                    session,
-                    headers=self._download_headers(),
+                self.error_logger.log_error(
+                    aweme_id,
+                    "no_images_found",
+                    "No images found for gallery",
+                    aweme_data=aweme_data,
+                    extra={"media_type": media_type},
                 )
-                if not success:
-                    logger.error(
-                        f"Failed downloading image {index} for aweme {aweme_id}"
+                return {"success": False, "file_name": f"{file_stem}.jpg", "file_size": 0, "file_count": 0, "desc": desc, "publish_date": publish_date, "aweme_id": aweme_id, "save_dir": str(save_dir), "error": "图文作品无图片URL"}
+
+            download_headers = self._download_headers()
+            first_image_path: Optional[Path] = None
+            for index, url_candidates in enumerate(image_url_groups, start=1):
+                image_path: Optional[Path] = None
+                success = False
+                url_failures = []
+                for image_url in url_candidates:
+                    suffix = Path(urlparse(image_url).path).suffix or ".jpg"
+                    image_path = save_dir / f"{file_stem}_{index}{suffix}"
+                    success, error_msg = await self.file_manager.download_file(
+                        image_url, image_path, session, headers=download_headers
                     )
-                    return _result(False)
+                    if success:
+                        break
+                    url_failures.append({
+                        "url": image_url[:150],
+                        "error": error_msg,
+                    })
+                    logger.debug(
+                        f"Image {index} URL failed ({error_msg}), trying next candidate: {aweme_id}"
+                    )
+                if not success or image_path is None:
+                    error_msg = f"Failed downloading image {index} (tried {len(url_candidates)} URLs)"
+                    if url_failures:
+                        last_error = url_failures[-1].get("error", "")
+                        if last_error:
+                            error_msg = last_error
+                    logger.error(
+                        f"Failed downloading image {index} for aweme {aweme_id} "
+                        f"(tried {len(url_candidates)} URLs)"
+                    )
+                    self.error_logger.log_error(
+                        aweme_id,
+                        "image_download_failed",
+                        f"Failed downloading image {index} (tried {len(url_candidates)} URLs)",
+                        aweme_data=aweme_data,
+                        extra={
+                            "media_type": media_type,
+                            "image_index": index,
+                            "url_failures": url_failures,
+                        },
+                    )
+                    return {"success": False, "file_name": f"{file_stem}_{index}.jpg", "file_size": 0, "file_count": 0, "desc": desc, "publish_date": publish_date, "aweme_id": aweme_id, "save_dir": str(save_dir), "error": error_msg}
                 downloaded_files.append(image_path)
                 if first_image_path is None:
                     first_image_path = image_path
         else:
             logger.error(f"Unsupported media type for aweme {aweme_id}: {media_type}")
-            return _result(False)
+            self.error_logger.log_error(
+                aweme_id,
+                "unsupported_media_type",
+                f"Unsupported media type: {media_type}",
+                aweme_data=aweme_data,
+            )
+            return {"success": False, "file_name": f"{file_stem}.mp4", "file_size": 0, "file_count": 0, "desc": desc, "publish_date": publish_date, "aweme_id": aweme_id, "save_dir": str(save_dir), "error": f"不支持的媒体类型: {media_type}"}
 
         if self.config.get("avatar"):
             author = aweme_data.get("author", {})
             avatar_url = self._extract_first_url(author.get("avatar_larger"))
+            if not avatar_url:
+                avatar_url = self._extract_first_url(author.get("avatar_medium"))
+            if not avatar_url:
+                avatar_url = self._extract_first_url(author.get("avatar_thumb"))
             if avatar_url:
                 avatar_path = save_dir / f"{file_stem}_avatar.jpg"
-                if await self._download_with_retry(
-                    avatar_url,
-                    avatar_path,
-                    session,
-                    headers=self._download_headers(),
-                    optional=True,
-                ):
+                avatar_success, _ = await self._download_with_retry(
+                        avatar_url,
+                        avatar_path,
+                        session,
+                        headers=self._download_headers(),
+                        optional=True,
+                    )
+                if avatar_success:
                     downloaded_files.append(avatar_path)
+                else:
+                    self.error_logger.log_error(
+                        aweme_id,
+                        "avatar_download_failed",
+                        "Failed downloading author avatar",
+                        aweme_data=aweme_data,
+                    )
 
         if self.config.get("json"):
             json_path = save_dir / f"{file_stem}_data.json"
             if await self.metadata_handler.save_metadata(aweme_data, json_path):
                 downloaded_files.append(json_path)
+            else:
+                self.error_logger.log_error(
+                    aweme_id,
+                    "json_save_failed",
+                    "Failed saving metadata JSON file",
+                    aweme_data=aweme_data,
+                )
 
         author = aweme_data.get("author", {})
         if self.database:
@@ -387,11 +523,13 @@ class BaseDownloader(ABC):
             )
             transcript_status = transcript_result.get("status")
             if transcript_status == "skipped":
-                logger.info(
-                    "Transcript skipped for aweme %s: %s",
-                    aweme_id,
-                    transcript_result.get("reason", "unknown"),
-                )
+                reason = transcript_result.get("reason", "unknown")
+                if reason != "disabled":
+                    logger.info(
+                        "Transcript skipped for aweme %s: %s",
+                        aweme_id,
+                        reason,
+                    )
             elif transcript_status == "failed":
                 logger.warning(
                     "Transcript failed for aweme %s: %s",
@@ -415,28 +553,46 @@ class BaseDownloader(ABC):
         *,
         headers: Optional[Dict[str, str]] = None,
         optional: bool = False,
-    ) -> bool:
+    ) -> tuple:
         async def _task():
-            success = await self.file_manager.download_file(
+            success, error = await self.file_manager.download_file(
                 url, save_path, session, headers=headers
             )
             if not success:
-                raise RuntimeError(f"Download failed for {url}")
+                raise RuntimeError(f"Download failed: {error}")
             return True
 
         try:
             await self.retry_handler.execute_with_retry(_task)
-            return True
+            return True, None
         except Exception as error:
             log_fn = logger.warning if optional else logger.error
             self._log_download_error(
                 log_fn,
                 f"Download error for {save_path.name}: {error}",
             )
-            return False
+            return False, str(error)
 
     def _detect_media_type(self, aweme_data: Dict[str, Any]) -> str:
-        if aweme_data.get("image_post_info") or aweme_data.get("images"):
+        image_post = aweme_data.get("image_post_info", {})
+        images = image_post.get("images") if image_post else None
+        if images is None:
+            images = aweme_data.get("images") or []
+
+        video_info = aweme_data.get("video", {})
+        play_addr = video_info.get("play_addr", {})
+        url_list = play_addr.get("url_list") or []
+        has_video = bool(url_list)
+        if has_video:
+            first_url = url_list[0] if url_list else ""
+            if "ies-music" in first_url or first_url.endswith(".mp3"):
+                has_video = False
+
+        if images and len(images) > 1:
+            return "gallery"
+        if has_video:
+            return "video"
+        if images:
             return "gallery"
         return "video"
 
@@ -487,15 +643,15 @@ class BaseDownloader(ABC):
 
         return None
 
-    def _collect_image_urls(self, aweme_data: Dict[str, Any]) -> List[str]:
-        image_urls: List[str] = []
+    def _collect_image_urls(self, aweme_data: Dict[str, Any]) -> List[List[str]]:
+        image_url_groups: List[List[str]] = []
         image_post = aweme_data.get("image_post_info", {})
         images = image_post.get("images") or aweme_data.get("images") or []
         for item in images:
             url_list = item.get("url_list") if isinstance(item, dict) else None
             if url_list:
-                image_urls.append(url_list[0])
-        return image_urls
+                image_url_groups.append(list(url_list))
+        return image_url_groups
 
     @staticmethod
     def _extract_first_url(source: Any) -> Optional[str]:

@@ -2,13 +2,17 @@ import logging
 import sys
 from pathlib import Path
 
+_global_console_handler = None
+
 
 def setup_logger(
     name: str = "dy-downloader",
     level: int = logging.INFO,
     log_file: str = None,
-    console_level: int = logging.ERROR,
+    console_level: int = logging.CRITICAL,
 ) -> logging.Logger:
+    global _global_console_handler
+    
     logger = logging.getLogger(name)
     logger.setLevel(level)
     logger.propagate = False
@@ -21,10 +25,12 @@ def setup_logger(
         datefmt="%Y-%m-%d %H:%M:%S",
     )
 
-    console_handler = logging.StreamHandler(sys.stderr)
-    console_handler.setLevel(console_level)
-    console_handler.setFormatter(formatter)
-    logger.addHandler(console_handler)
+    if _global_console_handler is None:
+        _global_console_handler = logging.StreamHandler(sys.stderr)
+        _global_console_handler.setLevel(console_level)
+        _global_console_handler.setFormatter(formatter)
+    
+    logger.addHandler(_global_console_handler)
 
     if log_file:
         log_path = Path(log_file)
@@ -39,11 +45,22 @@ def setup_logger(
 
 
 def set_console_log_level(level: int) -> None:
-    for logger in logging.Logger.manager.loggerDict.values():
-        if not isinstance(logger, logging.Logger):
-            continue
-        for handler in logger.handlers:
+    global _global_console_handler
+    
+    if _global_console_handler is not None:
+        _global_console_handler.setLevel(level)
+    
+    for logger_name in list(logging.Logger.manager.loggerDict.keys()):
+        logger = logging.getLogger(logger_name)
+        for handler in list(logger.handlers):
             if isinstance(handler, logging.StreamHandler) and not isinstance(
                 handler, logging.FileHandler
             ):
                 handler.setLevel(level)
+    
+    root_logger = logging.getLogger()
+    for handler in list(root_logger.handlers):
+        if isinstance(handler, logging.StreamHandler) and not isinstance(
+            handler, logging.FileHandler
+        ):
+            handler.setLevel(level)

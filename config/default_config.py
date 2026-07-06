@@ -45,4 +45,9 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "idle_rounds": 8,
         "wait_timeout_seconds": 600,
     },
+    "url_delay": {
+        "enabled": False,
+        "min_seconds": 2,
+        "max_seconds": 5,
+    },
 }

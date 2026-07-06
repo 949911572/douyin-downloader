@@ -7,6 +7,7 @@ from storage import Database, FileManager
 from auth import CookieManager
 from control import QueueManager, RateLimiter, RetryHandler
 from core.api_client import DouyinAPIClient
+from utils.error_logger import ErrorLogger
 from utils.logger import setup_logger
 
 logger = setup_logger('DownloaderFactory')
@@ -25,6 +26,7 @@ class DownloaderFactory:
         retry_handler: Optional[RetryHandler] = None,
         queue_manager: Optional[QueueManager] = None,
         progress_reporter: Optional[Any] = None,
+        error_logger: Optional[ErrorLogger] = None,
     ) -> Optional[BaseDownloader]:
 
         common_args = {
@@ -37,6 +39,7 @@ class DownloaderFactory:
             'retry_handler': retry_handler,
             'queue_manager': queue_manager,
             'progress_reporter': progress_reporter,
+            'error_logger': error_logger,
         }
 
         if url_type == 'video':

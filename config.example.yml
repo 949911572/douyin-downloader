@@ -3,10 +3,10 @@ link:
 
 path: ./Downloaded/
 
-music: true
-cover: true
-avatar: true
-json: true
+music: false
+cover: false
+avatar: false
+json: false
 
 folderstyle: true
 
@@ -27,9 +27,10 @@ increase:
   mix: false
   music: false
 
-thread: 5
+thread: 1
 retry_times: 3
 database: true
+skip_threshold_hours: 4
 
 retry:
   max_retries: 3
@@ -55,6 +56,11 @@ browser_fallback:
   max_scrolls: 240
   idle_rounds: 8
   wait_timeout_seconds: 600
+
+url_delay:
+  enabled: true
+  min_seconds: 2
+  max_seconds: 5
 
 cookies:
   msToken: YOUR_MS_TOKEN

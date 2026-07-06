@@ -3,7 +3,9 @@ import argparse
 import json
 import logging
 import os
+import random
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict
 
@@ -11,11 +13,12 @@ from config import ConfigLoader
 from auth import CookieManager
 from storage import Database, FileManager
 from control import QueueManager, RateLimiter, RetryHandler
-from core import DouyinAPIClient, URLParser, DownloaderFactory
+from core import DouyinAPIClient, URLParser, DownloaderFactory, VideoDownloader
 from cli.progress_display import ProgressDisplay
 from utils.logger import setup_logger, set_console_log_level
 from utils.scan_record_manager import ScanRecordManager
 from utils.failed_video_manager import FailedVideoManager
+from utils.error_logger import ErrorLogger
 
 logger = setup_logger('CLI')
 display = ProgressDisplay()
@@ -40,13 +43,14 @@ async def download_url(
     last_video_time: str = None,  # 上次最新视频时间，用于增量更新
     parsed_url: Dict[str, Any] = None,  # 预解析的URL结果
     api_client=None,  # 复用的API客户端
+    error_logger: ErrorLogger = None,
 ):
     if progress_reporter:
         progress_reporter.advance_step("初始化", "创建下载组件")
     file_manager = FileManager(config.get('path'))
     rate_limiter = RateLimiter(max_per_second=2)
     retry_handler = RetryHandler(max_retries=config.get('retry_times', 3))
-    queue_manager = QueueManager(max_workers=int(config.get('thread', 5) or 5))
+    queue_manager = QueueManager(max_workers=int(config.get('thread', 1) or 1))
 
     original_url = url
     should_close_client = False
@@ -100,6 +104,7 @@ async def download_url(
             retry_handler,
             queue_manager,
             progress_reporter=progress_reporter,
+            error_logger=error_logger,
         )
 
         if not downloader:
@@ -214,11 +219,36 @@ async def main_async(args):
     display.start_download_session(len(urls))
     url_results = []
     skipped_urls = []
+    shared_error_logger = ErrorLogger()
+    
+    # 读取URL间延迟配置
+    url_delay_config = config.get("url_delay", {}) or {}
+    url_delay_enabled = _as_bool(url_delay_config.get("enabled", False), default=False)
+    url_delay_min = float(url_delay_config.get("min_seconds", 2))
+    url_delay_max = float(url_delay_config.get("max_seconds", 5))
     
     # 批量处理所有URL
     async with DouyinAPIClient(cookie_manager.get_cookies()) as api_client:
         for i, url in enumerate(urls, 1):
-            display.start_url(i, len(urls), url)
+            # 解析URL获取用户ID（只做一次）
+            resolved_url = url
+            
+            if url.startswith('https://v.douyin.com'):
+                resolved_url = await api_client.resolve_short_url(url)
+                if not resolved_url:
+                    url_results.append((url, None, "failed"))
+                    display.start_url(i, len(urls), url)
+                    display.fail_url("短链解析失败")
+                    scan_record_manager.mark_parse_failed(url)
+                    continue
+
+            display.start_url(i, len(urls), resolved_url)
+
+            # URL间随机延迟（第一个URL不延迟）
+            if i > 1 and url_delay_enabled:
+                delay = random.uniform(url_delay_min, url_delay_max)
+                display.print_info(f"等待 {delay:.1f} 秒后处理下一个链接...")
+                await asyncio.sleep(delay)
 
             # 智能跳过检查：如果N小时内已成功处理，跳过该链接
             if scan_record_manager.should_skip(url):
@@ -229,17 +259,7 @@ async def main_async(args):
                 display.skip_url(scan_record_manager.get_skip_reason(url))
                 continue
             
-            # 解析URL获取用户ID（只做一次）
-            resolved_url = url
             parsed = None
-            
-            if url.startswith('https://v.douyin.com'):
-                resolved_url = await api_client.resolve_short_url(url)
-                if not resolved_url:
-                    url_results.append((url, None, "failed"))
-                    display.fail_url("短链解析失败")
-                    scan_record_manager.mark_parse_failed(url)
-                    continue
 
             # 获取扫描记录，用于增量更新
             record = scan_record_manager.get_record(url)
@@ -263,6 +283,7 @@ async def main_async(args):
                 last_video_time=last_video_time,  # 使用 last_video_time 作为增量更新阈值
                 parsed_url=parsed,
                 api_client=api_client,
+                error_logger=shared_error_logger,
             )
             if result:
                 url_results.append((url, result, "success"))
@@ -297,9 +318,16 @@ async def main_async(args):
         set_console_log_level(logging.ERROR)
 
     display.show_final_summary(url_results, config, skipped_urls)
+    if shared_error_logger.get_error_count() > 0:
+        print(f"\n详细错误日志已保存到: {os.path.abspath(shared_error_logger._session_file)}")
 
 
 def main():
+    from utils.environment_check import run_environment_check
+    
+    if not run_environment_check():
+        sys.exit(1)
+    
     parser = argparse.ArgumentParser(description='Douyin Downloader - 抖音批量下载工具')
     parser.add_argument('-u', '--url', action='append', help='Download URL(s)')
     parser.add_argument('-c', '--config', help='Config file path (default: config.yml)')
@@ -307,13 +335,13 @@ def main():
     parser.add_argument('-t', '--thread', type=int, help='Thread count')
     parser.add_argument('--show-warnings', action='store_true', help='Show warning logs in console')
     parser.add_argument('-v', '--verbose', action='store_true', help='Enable verbose console logs')
-    parser.add_argument('--version', action='version', version='2.0.0')
+    parser.add_argument('--version', action='version', version='2.1.0')
     
     # 失败视频管理命令
     parser.add_argument('--list-failed', action='store_true', help='List all failed videos')
-    parser.add_argument('--mark-processed', help='Mark a video as processed by aweme_id')
+    parser.add_argument('--retry-failed', action='store_true', help='Retry all failed videos')
     parser.add_argument('--mark-skipped', help='Mark a video as skipped by aweme_id')
-    parser.add_argument('--refresh-video-time', nargs='?', const=True, default=False, help='Refresh last_video_time for users without downloading (skips 4-hour limit). Optional: specify a URL to refresh single user')
+    parser.add_argument('--mark-all-failed-skipped', action='store_true', help='Mark all failed videos as skipped')
 
     args = parser.parse_args()
 
@@ -321,15 +349,15 @@ def main():
     if args.list_failed:
         list_failed_videos()
         return
-    elif args.mark_processed:
-        mark_failed_video(args.mark_processed, 'processed')
+    elif args.retry_failed:
+        config_path = args.config or 'config.yml'
+        asyncio.run(retry_failed_videos(config_path))
         return
     elif args.mark_skipped:
-        mark_failed_video(args.mark_skipped, 'skipped')
+        mark_failed_video(args.mark_skipped)
         return
-    elif args.refresh_video_time is not False:
-        # args.refresh_video_time 为 True 时刷新所有用户，为字符串时刷新指定URL
-        asyncio.run(refresh_video_time_for_all_users(args.refresh_video_time if isinstance(args.refresh_video_time, str) else None))
+    elif args.mark_all_failed_skipped:
+        asyncio.run(mark_all_failed_as_skipped())
         return
 
     if args.verbose:
@@ -365,147 +393,204 @@ def list_failed_videos():
         print(f"{i}. aweme_id: {video['aweme_id']}")
         print(f"   标题: {video['title']}")
         print(f"   作者: {video['author_name']}")
+        print(f"   链接: {video.get('url', '')}")
         print(f"   失败时间: {video['failed_time']}")
         print(f"   错误信息: {video.get('error_message', '未知')}")
         print("-" * 80)
 
 
-def mark_failed_video(aweme_id: str, status: str):
-    """标记失败视频的状态"""
+async def retry_failed_videos(config_path: str = 'config.yml'):
+    """重试所有失败的视频"""
     failed_manager = FailedVideoManager()
+    error_logger = ErrorLogger()
+    failed_videos = failed_manager.get_failed_videos(status='failed')
     
-    if status == 'processed':
-        success = failed_manager.mark_as_processed(aweme_id)
-        action = '已处理'
-    else:
-        success = failed_manager.mark_as_skipped(aweme_id)
-        action = '跳过'
-        
-        # 如果标记为跳过，同时记录到数据库（模拟已下载）
-        if success:
-            try:
-                import asyncio
-                import aiosqlite
-                from datetime import datetime
-                
-                # 异步插入记录，表示该视频已"下载"，后续会跳过
-                async def mark_in_db():
-                    async with aiosqlite.connect('dy_downloader.db') as db:
-                        await db.execute('''
-                            INSERT OR IGNORE INTO aweme 
-                            (aweme_id, aweme_type, title, author_id, author_name, create_time, download_time)
-                            VALUES (?, ?, ?, ?, ?, ?, ?)
-                        ''', (aweme_id, 'video', '已跳过', '', '', 0, int(datetime.now().timestamp())))
-                        await db.commit()
-                
-                asyncio.run(mark_in_db())
-                print(f"同时将视频 {aweme_id} 记录到数据库，后续下载将跳过")
-            except Exception as e:
-                print(f"记录到数据库失败: {e}")
-    
-    if success:
-        print(f"成功将视频 {aweme_id} 标记为 {action}")
-    else:
-        print(f"未找到视频 {aweme_id}")
-
-
-async def refresh_video_time_for_all_users(target_url: str = None):
-    """刷新用户的 last_video_time，不进行下载，跳过4小时限制
-    
-    Args:
-        target_url: 可选，指定要刷新的用户URL，不指定则刷新所有用户
-    """
-    display.show_banner()
-    
-    config_path = 'config.yml'
-    if not Path(config_path).exists():
-        display.print_error(f"Config file not found: {config_path}")
+    if not failed_videos:
+        print("没有未处理的失败视频")
         return
     
-    config = ConfigLoader(config_path)
+    print(f"找到 {len(failed_videos)} 个失败视频，开始重试...")
+    print("-" * 80)
     
+    config = ConfigLoader(config_path)
     cookies = config.get_cookies()
     cookie_manager = CookieManager()
     cookie_manager.set_cookies(cookies)
+    database = Database()
     
-    # 加载扫描记录
-    data_dir = os.path.join(os.path.dirname(__file__), '..', 'data')
-    scan_record_manager = ScanRecordManager(
-        os.path.join(data_dir, 'scan_records.json'),
-        skip_threshold_hours=0  # 跳过限制
-    )
-    
-    records = scan_record_manager.get_all_records()
-    if not records:
-        display.print_info("没有扫描记录需要刷新")
-        return
-    
-    # 如果指定了目标URL，只处理该URL
-    if target_url:
-        if target_url in records:
-            records_to_process = {target_url: records[target_url]}
-        else:
-            display.print_error(f"未找到URL: {target_url}")
-            return
-    else:
-        records_to_process = records
-    
-    display.print_info(f"找到 {len(records_to_process)} 条记录需要刷新 last_video_time")
+    await database.initialize()
     
     success_count = 0
-    failed_count = 0
+    fail_count = 0
     
     async with DouyinAPIClient(cookie_manager.get_cookies()) as api_client:
-        for i, (url, record) in enumerate(records_to_process.items(), 1):
-            sec_uid = record.get('sec_uid', '')
-            username = record.get('username', '未知')
-            
-            if not sec_uid:
-                display.print_warning(f"[{i}/{len(records_to_process)}] 跳过 {username} - 缺少 sec_uid")
-                continue
-            
-            display.print_info(f"[{i}/{len(records_to_process)}] 正在刷新 {username}")
+        for i, video in enumerate(failed_videos, 1):
+            aweme_id = video['aweme_id']
+            author_name = video.get('author_name', '未知')
+            print(f"\n[{i}/{len(failed_videos)}] 重试: {aweme_id} ({author_name})")
             
             try:
-                # 创建下载器
-                file_manager = FileManager(config.get('path'))
-                downloader = DownloaderFactory.create(
-                    'user',
-                    config,
-                    api_client,
-                    file_manager,
-                    cookie_manager,
-                    database=None,
-                    rate_limiter=RateLimiter(max_per_second=2),
-                    retry_handler=None,
-                    queue_manager=QueueManager(max_workers=1),
-                )
-                
-                if not downloader:
-                    display.print_error(f"创建下载器失败")
-                    failed_count += 1
+                detail = await api_client.get_video_detail(aweme_id)
+                if not detail:
+                    print(f"  ✗ 无法获取视频详情，可能已删除或私密")
+                    error_logger.log_error(
+                        aweme_id,
+                        "retry_api_detail_failed",
+                        "无法获取视频详情，可能已删除或私密",
+                        extra={
+                            "source": "retry_failed",
+                            "author_name": author_name,
+                            "original_error": video.get('error_message', ''),
+                        },
+                    )
+                    fail_count += 1
                     continue
                 
-                # 调用刷新方法
-                result = await downloader.refresh_last_video_time({'sec_uid': sec_uid})
+                file_manager = FileManager(config.get('path'))
+                rate_limiter = RateLimiter(max_per_second=2)
+                retry_handler = RetryHandler(max_retries=config.get('retry_times', 3))
+                queue_manager = QueueManager(max_workers=int(config.get('thread', 1) or 1))
                 
-                if result.last_video_time:
-                    # 只更新 last_video_time，保留原有统计数据
-                    scan_record_manager.update_last_video_time(
-                        url,
-                        result.last_video_time,
-                        result.author_name  # 可选更新用户名
-                    )
-                    display.print_success(f"  ✓ 刷新成功: {result.last_video_time}")
+                downloader = VideoDownloader(
+                    config=config,
+                    api_client=api_client,
+                    file_manager=file_manager,
+                    cookie_manager=cookie_manager,
+                    database=database,
+                    rate_limiter=rate_limiter,
+                    retry_handler=retry_handler,
+                    queue_manager=queue_manager,
+                    error_logger=error_logger,
+                )
+                
+                result = await downloader.download(detail)
+                if result.success > 0:
+                    total_files = sum(f.get("file_count", 1) for f in result.downloaded_files)
+                    print(f"  ✓ 下载成功: {total_files} 个文件")
+                    failed_manager.mark_as_processed(aweme_id)
                     success_count += 1
+                elif result.skipped > 0:
+                    print(f"  → 已跳过: 数据库已有记录，跳过下载")
                 else:
-                    display.print_error(f"  ✗ 刷新失败: 无法获取视频时间")
-                    failed_count += 1
+                    if result.failed_items:
+                        for aweme_id_failed, error_msg in result.failed_items:
+                            print(f"  ✗ 下载失败: {error_msg}")
+                            error_logger.log_error(
+                                aweme_id_failed,
+                                "retry_download_failed",
+                                error_msg,
+                                extra={
+                                    "source": "retry_failed",
+                                    "author_name": author_name,
+                                    "original_error": video.get('error_message', ''),
+                                },
+                            )
+                            fail_count += 1
+                    else:
+                        print(f"  ✗ 下载失败: 未知原因")
+                        error_logger.log_error(
+                            aweme_id,
+                            "retry_download_failed_unknown",
+                            "未知原因",
+                            extra={
+                                "source": "retry_failed",
+                                "author_name": author_name,
+                                "original_error": video.get('error_message', ''),
+                            },
+                        )
+                        fail_count += 1
+                    
             except Exception as e:
-                display.print_error(f"  ✗ 刷新失败: {e}")
-                failed_count += 1
+                import traceback
+                print(f"  ✗ 重试异常: {e}")
+                traceback.print_exc()
+                error_logger.log_error(
+                    aweme_id,
+                    "retry_exception",
+                    str(e),
+                    extra={
+                        "source": "retry_failed",
+                        "author_name": author_name,
+                        "original_error": video.get('error_message', ''),
+                    },
+                    exc_info=e,
+                )
+                fail_count += 1
     
-    display.print_info(f"\n刷新完成: 成功 {success_count} 条, 失败 {failed_count} 条")
+    print("\n" + "=" * 80)
+    print(f"重试完成: 成功 {success_count} 个, 失败 {fail_count} 个")
+    print("=" * 80)
+    if error_logger.get_error_count() > 0:
+        print(f"\n详细错误日志已保存到: {os.path.abspath(error_logger._session_file)}")
+
+
+def mark_failed_video(aweme_id: str):
+    """标记单个失败视频为跳过"""
+    failed_manager = FailedVideoManager()
+    success = failed_manager.mark_as_skipped(aweme_id)
+    
+    if success:
+        try:
+            async def mark_in_db():
+                from storage import Database
+                database = Database()
+                await database.initialize()
+                await database.add_skipped_aweme(aweme_id)
+            
+            asyncio.run(mark_in_db())
+            print(f"成功将视频 {aweme_id} 标记为跳过，已记录到数据库")
+        except Exception as e:
+            print(f"标记成功，但记录到数据库失败: {e}")
+    else:
+        print(f"未找到视频 {aweme_id} 的失败记录")
+
+
+async def mark_all_failed_as_skipped():
+    """批量标记所有失败视频为跳过"""
+    import shutil
+    
+    db_path = 'dy_downloader.db'
+    backup_dir = os.path.join('data', 'db_backup', datetime.now().strftime('%Y%m%d_%H%M'))
+    os.makedirs(backup_dir, exist_ok=True)
+    backup_path = os.path.join(backup_dir, 'dy_downloader.db')
+    
+    if os.path.exists(db_path):
+        shutil.copy2(db_path, backup_path)
+        print(f"✓ 数据库已备份到: {backup_path}")
+    else:
+        print(f"⚠ 未找到数据库文件: {db_path}")
+    
+    failed_manager = FailedVideoManager()
+    failed_videos = failed_manager.get_failed_videos(status='failed')
+    
+    if not failed_videos:
+        print("没有未处理的失败视频")
+        return
+    
+    print(f"找到 {len(failed_videos)} 个失败视频，准备标记为跳过")
+    print("-" * 80)
+    
+    database = Database()
+    await database.initialize()
+    
+    success_count = 0
+    fail_count = 0
+    
+    for video in failed_videos:
+        aweme_id = video['aweme_id']
+        author_name = video.get('author_name', '')
+        
+        try:
+            failed_manager.mark_as_skipped(aweme_id)
+            await database.add_skipped_aweme(aweme_id, author_name)
+            success_count += 1
+            print(f"✓ {aweme_id} - {author_name}")
+        except Exception as e:
+            fail_count += 1
+            print(f"✗ {aweme_id} - {e}")
+    
+    print("-" * 80)
+    print(f"完成: 成功标记 {success_count} 个, 失败 {fail_count} 个")
 
 
 if __name__ == '__main__':

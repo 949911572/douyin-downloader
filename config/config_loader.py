@@ -94,7 +94,9 @@ class ConfigLoader:
         if not links:
             errors.append("配置错误：未配置任何下载链接 (link)")
         elif len(links) > 100:
-            errors.append(f"警告：链接数量过多 ({len(links)}个)，建议分批下载")
+            from utils.logger import setup_logger
+            logger = setup_logger("ConfigLoader")
+            logger.warning(f"链接数量较多 ({len(links)}个)，建议分批下载以提高稳定性")
         
         # 检查下载路径
         download_path = self.config.get("path")

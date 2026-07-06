@@ -11,7 +11,7 @@ def validate_url(url: str) -> bool:
         return False
 
 
-def sanitize_filename(filename: str, max_length: int = 80, suffix: str = '') -> str:
+def sanitize_filename(filename: str, max_length: int = 60, keep_suffix: str = '') -> str:
     # 换行符 → 空格
     filename = filename.replace('\n', ' ').replace('\r', ' ')
     # Windows 非法字符 + #，逗号 → 下划线
@@ -22,13 +22,13 @@ def sanitize_filename(filename: str, max_length: int = 80, suffix: str = '') -> 
     filename = filename.strip('._- ')
 
     if len(filename) > max_length:
-        if suffix and suffix in filename:
-            # 截断时保留末尾 suffix（如 aweme_id），压缩中间部分
-            keep_len = max_length - len(suffix)
+        if keep_suffix and keep_suffix in filename:
+            # 截断时保留末尾 keep_suffix（如 aweme_id），压缩中间部分
+            keep_len = max_length - len(keep_suffix)
             if keep_len > 0:
-                filename = filename[:keep_len].rstrip('._- ') + suffix
+                filename = filename[:keep_len].rstrip('._- ') + keep_suffix
             else:
-                filename = suffix.lstrip('._- ')
+                filename = keep_suffix.lstrip('._- ')
         else:
             filename = filename[:max_length].rstrip('._- ')
 

@@ -30,10 +30,18 @@ class FileManager:
         else:
             save_dir = self.base_path / safe_author
 
-        if folderstyle and aweme_title and aweme_id:
+        if folderstyle and aweme_title:
             safe_title = sanitize_filename(aweme_title)
             date_prefix = f"{download_date}_" if download_date else ""
-            save_dir = save_dir / f"{date_prefix}{safe_title}_{aweme_id}"
+            base_name = f"{date_prefix}{safe_title}"
+            candidate_dir = save_dir / base_name
+            
+            counter = 1
+            while candidate_dir.exists():
+                candidate_dir = save_dir / f"{base_name}_{counter}"
+                counter += 1
+            
+            save_dir = candidate_dir
 
         save_dir.mkdir(parents=True, exist_ok=True)
         return save_dir
@@ -44,7 +52,8 @@ class FileManager:
         save_path: Path,
         session: aiohttp.ClientSession = None,
         headers: Optional[Dict[str, str]] = None,
-    ) -> bool:
+    ) -> tuple:
+        """下载文件，返回 (success, error_message) 元组。"""
         should_close = False
         if session is None:
             default_headers = headers or {
@@ -66,17 +75,19 @@ class FileManager:
                     async with aiofiles.open(save_path, "wb") as f:
                         async for chunk in response.content.iter_chunked(8192):
                             await f.write(chunk)
-                    return True
+                    return True, None
                 else:
+                    error_msg = f"HTTP {response.status}"
                     logger.debug(
                         "Download failed for %s, status=%s",
                         save_path.name,
                         response.status,
                     )
-                    return False
+                    return False, error_msg
         except Exception as e:
+            error_msg = f"{type(e).__name__}: {e}"
             logger.debug("Download error for %s: %s", save_path.name, e)
-            return False
+            return False, error_msg
         finally:
             if should_close:
                 await session.close()

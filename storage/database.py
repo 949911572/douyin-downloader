@@ -24,9 +24,17 @@ class Database:
                     create_time INTEGER,
                     download_time INTEGER,
                     file_path TEXT,
-                    metadata TEXT
+                    metadata TEXT,
+                    status TEXT DEFAULT 'downloaded'
                 )
             ''')
+
+            try:
+                await db.execute('''
+                    ALTER TABLE aweme ADD COLUMN status TEXT DEFAULT 'downloaded'
+                ''')
+            except Exception:
+                pass
 
             await db.execute('''
                 CREATE TABLE IF NOT EXISTS download_history (
@@ -81,8 +89,8 @@ class Database:
         async with aiosqlite.connect(self.db_path) as db:
             await db.execute('''
                 INSERT OR REPLACE INTO aweme
-                (aweme_id, aweme_type, title, author_id, author_name, create_time, download_time, file_path, metadata)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                (aweme_id, aweme_type, title, author_id, author_name, create_time, download_time, file_path, metadata, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (
                 aweme_data.get('aweme_id'),
                 aweme_data.get('aweme_type'),
@@ -93,7 +101,17 @@ class Database:
                 int(datetime.now().timestamp()),
                 aweme_data.get('file_path'),
                 aweme_data.get('metadata'),
+                aweme_data.get('status', 'downloaded'),
             ))
+            await db.commit()
+
+    async def add_skipped_aweme(self, aweme_id: str, author_name: str = ''):
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute('''
+                INSERT OR IGNORE INTO aweme
+                (aweme_id, aweme_type, title, author_id, author_name, create_time, download_time, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (aweme_id, 'video', '已跳过', '', author_name, 0, int(datetime.now().timestamp()), 'skipped'))
             await db.commit()
 
     async def get_latest_aweme_time(self, author_id: str) -> Optional[int]:

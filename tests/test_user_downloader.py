@@ -52,12 +52,8 @@ class _FakeProgressReporter:
 class _FakeAPIClient:
     def __init__(self):
         self.user_post_calls: List[int] = []
-        self.browser_calls = 0
         self.detail_calls: List[str] = []
         self.detail_call_kwargs: List[Dict[str, Any]] = []
-        self.browser_call_kwargs: List[Dict[str, Any]] = []
-        self.browser_post_items: Dict[str, Dict[str, Any]] = {}
-        self.browser_post_stats: Dict[str, int] = {}
 
     async def get_user_post(self, _sec_uid: str, max_cursor: int = 0, _count: int = 20):
         self.user_post_calls.append(max_cursor)
@@ -71,31 +67,15 @@ class _FakeAPIClient:
             }
         return {"status_code": 0}
 
-    async def collect_user_post_ids_via_browser(self, *_args, **_kwargs):
-        self.browser_calls += 1
-        self.browser_call_kwargs.append(dict(_kwargs))
-        return ["111", "222", "333"]
-
     async def get_video_detail(self, aweme_id: str, **kwargs):
         self.detail_calls.append(aweme_id)
         self.detail_call_kwargs.append(kwargs)
         return _make_aweme(aweme_id)
 
-    def pop_browser_post_aweme_items(self):
-        data = self.browser_post_items
-        self.browser_post_items = {}
-        return data
-
-    def pop_browser_post_stats(self):
-        data = self.browser_post_stats
-        self.browser_post_stats = {}
-        return data
-
 
 def _build_downloader(
     tmp_path,
     api_client,
-    browser_enabled: bool,
     progress_reporter=None,
     number_post: int = 0,
 ) -> UserDownloader:
@@ -104,13 +84,6 @@ def _build_downloader(
         "increase": {"post": False},
         "mode": ["post"],
         "thread": 2,
-        "browser_fallback": {
-            "enabled": browser_enabled,
-            "headless": True,
-            "max_scrolls": 10,
-            "idle_rounds": 2,
-            "wait_timeout_seconds": 5,
-        },
     }
     config = _FakeConfig(config_data)
     file_manager = FileManager(str(tmp_path / "Downloaded"))
@@ -128,117 +101,12 @@ def _build_downloader(
     return downloader
 
 
-def test_user_post_browser_fallback_recovers_missing_pages(tmp_path, monkeypatch):
-    api_client = _FakeAPIClient()
-    downloader = _build_downloader(tmp_path, api_client, browser_enabled=True)
-
-    async def _always_true(*_args, **_kwargs):
-        return True
-
-    monkeypatch.setattr(downloader, "_should_download", _always_true)
-    monkeypatch.setattr(downloader, "_download_aweme_assets", _always_true)
-
-    result = asyncio.run(
-        downloader._download_user_post(
-            "sec_uid_x",
-            {"uid": "uid-1", "nickname": "tester", "aweme_count": 3},
-        )
-    )
-
-    assert result.total == 3
-    assert result.success == 3
-    assert api_client.browser_calls == 1
-    assert api_client.browser_call_kwargs[0].get("expected_count") == 0
-    assert api_client.detail_calls == ["222", "333"]
-    assert all(call.get("suppress_error") is True for call in api_client.detail_call_kwargs)
-
-
-def test_user_post_browser_fallback_can_be_disabled(tmp_path, monkeypatch):
-    api_client = _FakeAPIClient()
-    downloader = _build_downloader(tmp_path, api_client, browser_enabled=False)
-
-    async def _always_true(*_args, **_kwargs):
-        return True
-
-    monkeypatch.setattr(downloader, "_should_download", _always_true)
-    monkeypatch.setattr(downloader, "_download_aweme_assets", _always_true)
-
-    result = asyncio.run(
-        downloader._download_user_post(
-            "sec_uid_x",
-            {"uid": "uid-1", "nickname": "tester", "aweme_count": 3},
-        )
-    )
-
-    assert result.total == 1
-    assert result.success == 1
-    assert api_client.browser_calls == 0
-    assert api_client.detail_calls == []
-    assert api_client.detail_call_kwargs == []
-
-
-def test_user_post_browser_fallback_prefers_browser_aweme_items(tmp_path, monkeypatch):
-    api_client = _FakeAPIClient()
-    api_client.browser_post_items = {
-        "222": _make_aweme("222"),
-        "333": _make_aweme("333"),
-    }
-    downloader = _build_downloader(tmp_path, api_client, browser_enabled=True)
-
-    async def _always_true(*_args, **_kwargs):
-        return True
-
-    monkeypatch.setattr(downloader, "_should_download", _always_true)
-    monkeypatch.setattr(downloader, "_download_aweme_assets", _always_true)
-
-    result = asyncio.run(
-        downloader._download_user_post(
-            "sec_uid_x",
-            {"uid": "uid-1", "nickname": "tester", "aweme_count": 3},
-        )
-    )
-
-    assert result.total == 3
-    assert result.success == 3
-    assert api_client.detail_calls == []
-
-
-def test_user_post_browser_fallback_expected_count_uses_number_limit(
-    tmp_path, monkeypatch
-):
-    api_client = _FakeAPIClient()
-    downloader = _build_downloader(
-        tmp_path,
-        api_client,
-        browser_enabled=True,
-        number_post=2,
-    )
-
-    async def _always_true(*_args, **_kwargs):
-        return True
-
-    monkeypatch.setattr(downloader, "_should_download", _always_true)
-    monkeypatch.setattr(downloader, "_download_aweme_assets", _always_true)
-
-    result = asyncio.run(
-        downloader._download_user_post(
-            "sec_uid_x",
-            {"uid": "uid-1", "nickname": "tester", "aweme_count": 999},
-        )
-    )
-
-    assert result.total == 2
-    assert api_client.browser_calls == 1
-    assert api_client.browser_call_kwargs[0].get("expected_count") == 2
-
-
 def test_user_post_reports_step_and_item_progress(tmp_path, monkeypatch):
     api_client = _FakeAPIClient()
     reporter = _FakeProgressReporter()
     downloader = _build_downloader(
         tmp_path,
         api_client,
-        browser_enabled=True,
         progress_reporter=reporter,
     )
 

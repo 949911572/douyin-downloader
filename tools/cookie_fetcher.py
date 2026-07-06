@@ -29,12 +29,7 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
         default=DEFAULT_URL,
         help=f"Login page to open (default: {DEFAULT_URL})",
     )
-    parser.add_argument(
-        "--browser",
-        choices=["chromium", "firefox", "webkit"],
-        default="chromium",
-        help="Playwright browser engine (default: chromium)",
-    )
+
     parser.add_argument(
         "--headless",
         action="store_true",
@@ -69,10 +64,11 @@ async def capture_cookies(args: argparse.Namespace) -> int:
         )
         return 1
 
+    from utils.browser_config import USER_AGENT, VIEWPORT, DEFAULT_ARGS
+    
     async with async_playwright() as p:
-        browser_factory = getattr(p, args.browser)
-        browser = await browser_factory.launch(headless=args.headless)
-        context = await browser.new_context()
+        browser = await p.chromium.launch(headless=args.headless, args=DEFAULT_ARGS)
+        context = await browser.new_context(user_agent=USER_AGENT, viewport=VIEWPORT)
         page = await context.new_page()
         observed_cookie_headers: List[str] = []
         observed_mstokens: List[str] = []
