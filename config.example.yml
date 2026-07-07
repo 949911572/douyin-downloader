@@ -1,70 +1,111 @@
+# ==============================================================================
+# 抖音下载器配置文件模板
+# 复制此文件为 config.yml 并填写实际值
+# ==============================================================================
+
+# ==================== 基础配置 ====================
+# 下载链接列表，支持单视频、图文、用户主页链接
+# 短链格式: https://v.douyin.com/xxx/
+# 视频格式: https://www.douyin.com/video/{aweme_id}
+# 图文格式: https://www.douyin.com/note/{note_id}
+# 用户主页: https://www.douyin.com/user/{sec_uid}
 link:
   - https://www.douyin.com/user/MS4wLjABAAAA6O7EZyfDRYXxJrUTpf91K3tmB4rBROkAw-nYMfld8ss
 
+# 下载目录，支持相对路径和绝对路径
 path: ./Downloaded/
 
-music: false
-cover: false
-avatar: false
-json: false
+# ==================== 辅助资源下载开关 ====================
+# 以下选项控制是否下载对应的辅助资源
+# 默认全部关闭以减少资源占用和下载时间
+music: false        # 是否下载背景音乐
+cover: false        # 是否下载封面图片
+avatar: false       # 是否下载作者头像
+json: false         # 是否下载元数据JSON文件
 
-folderstyle: true
-
+# ==================== 下载模式配置 ====================
+# 下载模式，目前仅支持 post（用户作品）
+# like/mix/allmix/music 暂未实现
 mode:
   - post
 
+# 数量限制，0 表示不限制
+# 仅对用户主页下载有效，单视频/图文下载忽略此配置
 number:
-  post: 1
-  like: 0
-  allmix: 0
-  mix: 0
-  music: 0
+  post: 0           # 用户作品数量限制
+  like: 0           # [预留] 点赞作品数量限制（未实现）
+  allmix: 0         # [预留] 合集数量限制（未实现）
+  mix: 0            # [预留] 单个合集下载数量限制（未实现）
+  music: 0          # [预留] 音乐作品数量限制（未实现）
 
+# 增量更新开关，开启后只下载比上次最新视频更新的内容
+# 基于 scan_records.json 中的 last_video_time 控制
 increase:
-  post: false
-  like: false
-  allmix: false
-  mix: false
-  music: false
+  post: true        # 用户作品增量更新
+  like: false       # [预留] 点赞作品增量更新（未实现）
+  allmix: false     # [预留] 合集增量更新（未实现）
+  mix: false        # [预留] 单个合集增量更新（未实现）
+  music: false      # [预留] 音乐作品增量更新（未实现）
 
-thread: 1
-retry_times: 3
-database: true
+# ==================== 下载控制配置 ====================
+thread: 1           # 并发线程数，建议设置为 1 以降低限流风险
+retry_times: 3      # 单个任务重试次数
+database: true      # 是否启用数据库去重
+
+# 跳过阈值（小时），控制短时间内重复扫描的行为
+# 设置为 0 或不设置则不跳过任何用户
+# 设计用途：定时任务场景，避免频繁扫描已处理的用户
 skip_threshold_hours: 4
 
+# 重试配置
 retry:
-  max_retries: 3
-  delay: 5
+  max_retries: 3    # 最大重试次数
+  delay: 5          # 重试间隔（秒）
 
+# ==================== 进度显示配置 ====================
 progress:
-  quiet_logs: true
+  quiet_logs: true  # 是否启用静默模式，减少进度阶段的日志输出
 
+# ==================== 视频转写配置 ====================
+# 调用 OpenAI Transcriptions API 将视频转为文字
+# 需要有效的 API Key
 transcript:
-  enabled: false
-  model: gpt-4o-mini-transcribe
-  output_dir: ""
-  response_formats:
+  enabled: false              # 是否启用视频转写
+  model: gpt-4o-mini-transcribe  # 转写模型
+  output_dir: ""              # 输出目录，留空则与视频同目录
+  response_formats:           # 输出格式
     - txt
     - json
-  api_url: https://api.openai.com/v1/audio/transcriptions
-  api_key_env: OPENAI_API_KEY
-  api_key: ""
+  api_url: https://api.openai.com/v1/audio/transcriptions  # API 地址
+  api_key_env: OPENAI_API_KEY  # API Key 环境变量名
+  api_key: ""                 # API Key（不推荐硬编码，使用环境变量）
 
+# ==================== 浏览器兜底配置 ====================
+# 当 API 获取失败时，使用浏览器方式获取数据
 browser_fallback:
-  enabled: true
-  headless: false
-  max_scrolls: 240
-  idle_rounds: 8
-  wait_timeout_seconds: 600
+  enabled: true               # 是否启用浏览器兜底
+  headless: false             # 是否无头模式（false 显示浏览器窗口）
+  max_scrolls: 240            # 最大滚动次数
+  idle_rounds: 8              # 空闲检测轮数
+  wait_timeout_seconds: 600   # 等待超时时间（秒）
 
+# ==================== 请求限流配置 ====================
+# 在每个 URL 处理之间添加随机延迟，降低被限流风险
 url_delay:
-  enabled: true
-  min_seconds: 2
-  max_seconds: 5
+  enabled: true               # 是否启用请求延迟
+  min_seconds: 2              # 最小延迟（秒）
+  max_seconds: 5              # 最大延迟（秒）
 
+# ==================== Cookie 配置 ====================
+# 抖音登录 Cookie，用于访问需要登录的内容
+# 推荐使用 .\scripts\douyin.ps1 -Action refresh-cookies 自动获取
+# ⚠️ Cookie 包含账号敏感信息，请勿泄露或提交到版本控制
 cookies:
-  msToken: YOUR_MS_TOKEN
-  ttwid: YOUR_TTWID
-  odin_tt: YOUR_ODIN_TT
-  passport_csrf_token: YOUR_CSRF_TOKEN
-  sid_guard: YOUR_SID_GUARD
+  msToken: YOUR_MS_TOKEN               # msToken
+  ttwid: YOUR_TTWID                    # ttwid
+  odin_tt: YOUR_ODIN_TT                # odin_tt
+  passport_csrf_token: YOUR_CSRF_TOKEN # passport_csrf_token
+  sid_guard: YOUR_SID_GUARD            # sid_guard
+
+# ==================== 目录样式配置 ====================
+folderstyle: true  # 是否按作者名和日期创建嵌套目录结构
