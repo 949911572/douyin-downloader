@@ -712,26 +712,27 @@ python run.py --mark-skipped <aweme_id>
 **日常使用流程** 🍴：
 
 ```powershell
-# ===== 方式一：普通下载（直接配置链接）=====
-# 1. 配置链接到 config.yml 的 link 字段
-# 2. 执行下载
-.\scripts\douyin.ps1
-
-# ===== 方式二：浏览器获取下载（需要登录或分页受限）=====
+# ===== 通用准备操作（两种下载模式都需要）=====
 # 1. 检查浏览器登录状态（首次使用或登录过期时执行）
 .\scripts\douyin.ps1 -Action verify-login
 
 # 2. 刷新 Cookie（首次使用或登录过期时执行）
 .\scripts\douyin.ps1 -Action refresh-cookies
 
-# 3. 通过浏览器扫描获取链接（收藏页或用户主页）
+# ===== 方式一：普通下载（直接配置链接）=====
+# 1. 配置链接到 config.yml 的 link 字段
+# 2. 执行下载
+.\scripts\douyin.ps1
+
+# ===== 方式二：浏览器获取下载（需要登录或分页受限）=====
+# 1. 通过浏览器扫描获取链接（收藏页或用户主页）
 .\scripts\douyin.ps1 -Action fetch-links              # 扫描收藏页
 .\scripts\douyin.ps1 -Action fetch-links -Url https://www.douyin.com/user/MS4wLjABAAAAxxxx  # 扫描用户主页
 
-# 4. 下载采集到的链接
+# 2. 下载采集到的链接
 .\scripts\douyin.ps1 -ConfigFile config_temp.yml
 
-# ===== 通用操作 =====
+# ===== 通用后续操作 =====
 # 备份数据库（可选但推荐）
 .\scripts\douyin.ps1 -Action backup-db
 
