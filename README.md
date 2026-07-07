@@ -21,44 +21,54 @@
 
 ## 功能概览
 
-### 已支持
+### 已支持功能
 
-- 单个视频下载：`/video/{aweme_id}`
-- 单个图文下载：`/note/{note_id}`
-- 短链自动解析：`https://v.douyin.com/...`
-- 用户主页批量下载：`/user/{sec_uid}` + `mode: [post]`
-- 无水印优先、封面/音乐/头像/JSON 元数据下载
-- 图文作品（图集）下载，支持多候选 URL 轮换容错 🍴
-- 可选视频转写（`transcript`，调用 OpenAI Transcriptions API）
-- 并发下载、失败重试、速率限制
-- SQLite 去重与增量下载（基于 `scan_records.json`）🍴
-- 进度条展示（支持 `progress.quiet_logs` 静默模式）
-- 下载失败时自动写入详细错误日志 🍴
-- 数据库一键备份 🍴
+| 功能 | 说明 | Fork扩展 |
+|------|------|---------|
+| 单个视频下载 | `/video/{aweme_id}` | ❌ |
+| 单个图文下载 | `/note/{note_id}` | ❌ |
+| 短链自动解析 | `https://v.douyin.com/...` | ❌ |
+| 用户主页批量下载 | `/user/{sec_uid}` + `mode: [post]` | ❌ |
+| 无水印优先下载 | 默认下载无水印版本 | ❌ |
+| 辅助资源下载 | 封面/音乐/头像/JSON 元数据 | ❌ |
+| 图文作品下载 | 图集下载，多候选 URL 轮换容错 | ✅ |
+| 视频转写 | `transcript`，调用 OpenAI API | ❌ |
+| 并发下载 | 多线程下载支持 | ❌ |
+| 失败重试 | 自动重试失败任务 | ❌ |
+| 速率限制 | 请求间隔控制 | ✅ |
+| SQLite 去重 | 基于 `aweme_id` 去重 | ❌ |
+| 增量下载 | 基于 `scan_records.json` | ✅ |
+| 进度条展示 | 支持静默模式 | ❌ |
+| 详细错误日志 | 下载失败自动记录 | ✅ |
+| 数据库备份 | 一键备份功能 | ✅ |
 
-### 暂未接入（请勿按已支持使用）
+### 暂未接入功能（请勿按已支持使用）
 
-- `mode: like` 点赞下载
-- `mode: mix` 合集下载
-- `number.like` / `number.mix`
-- `collection/mix` 链接当前无对应下载器（会提示不支持）
+| 功能 | 说明 |
+|------|------|
+| `mode: like` | 点赞下载（未实现） |
+| `mode: mix` | 合集下载（未实现） |
+| `number.like` / `number.mix` | 点赞/合集数量限制（未实现） |
+| `collection/mix` 链接 | 当前无对应下载器，会提示不支持 |
 
 ## 快速开始
 
-### 1) 环境准备
+### 步骤 1：环境准备
 
-- Python 3.8+
-- macOS / Linux / Windows
+| 项目 | 要求 |
+|------|------|
+| Python 版本 | 3.8+ |
+| 操作系统 | macOS / Linux / Windows |
 
-### 2) 安装依赖
+### 步骤 2：安装依赖
 
-```bash
+```powershell
 pip install -r requirements.txt
 ```
 
-### 3) 安装浏览器（Playwright 需要）
+### 步骤 3：安装浏览器（Playwright 需要）
 
-```bash
+```powershell
 python -m playwright install chromium
 ```
 
@@ -84,19 +94,47 @@ python -m playwright install chromium
 - Viewport：`1280x800`
 - 禁用自动化检测、沙箱等反爬措施
 
-### 4) 复制配置
+### 步骤 4：复制配置
 
-```bash
+```powershell
+# Windows
+copy config.example.yml config.yml
+
+# macOS / Linux
 cp config.example.yml config.yml
 ```
 
-### 5) 获取 Cookie（推荐自动方式）
+### 步骤 5：获取 Cookie（推荐自动方式）
 
 ```powershell
 .\scripts\douyin.ps1 -Action refresh-cookies
 ```
 
-登录抖音后，程序会自动检测登录状态并写入配置。
+**步骤说明**：
+
+| 步骤 | 操作 |
+|------|------|
+| 1 | 脚本打开 Playwright Chromium 浏览器 |
+| 2 | 自动检查 `data/chrome_user_data/` 中的登录状态 |
+| 3 | 如果已登录，从浏览器 Cookie 数据库中提取所需的 Cookie |
+| 4 | 将提取的 Cookie 自动写入 `config.yml` |
+
+> **注意**：如果 `chrome_user_data` 数据不完整（缺少必要的登录 Cookie），脚本会提示用户先执行 `.\scripts\douyin.ps1 -Action verify-login` 登录。
+
+#### 手动获取 Cookie（备用方式）
+
+如果自动方式失败，可以手动获取：
+
+1. 打开浏览器访问 `https://www.douyin.com`
+2. 登录账号
+3. 打开开发者工具（F12）→ Application → Cookies → `https://www.douyin.com`
+4. 复制以下字段的值到 `config.yml` 的 `cookies` 部分：
+   - `ttwid`
+   - `odin_tt`
+   - `passport_csrf_token`
+   - `msToken`（可在页面源码中搜索）
+
+> **注意**：Cookie 包含账号敏感信息，请勿泄露。
 
 ## 最小可用配置
 
@@ -148,7 +186,7 @@ transcript:
 
 ### 方式一：命令行直接运行
 
-```bash
+```powershell
 # 使用默认配置
 python run.py
 
@@ -158,9 +196,9 @@ python run.py -c config.yml
 
 ### 方式二：命令行追加参数
 
-```bash
-python run.py -c config.yml \
-  -u "https://www.douyin.com/video/7604129988555574538" \
+```powershell
+python run.py -c config.yml `
+  -u "https://www.douyin.com/video/7604129988555574538" `
   -t 8 \
   -p ./Downloaded
 ```
@@ -298,7 +336,11 @@ transcript:
 
 推荐通过环境变量提供密钥：
 
-```bash
+```powershell
+# Windows
+$env:OPENAI_API_KEY="sk-xxxx"
+
+# macOS / Linux
 export OPENAI_API_KEY="sk-xxxx"
 ```
 
@@ -652,7 +694,7 @@ skip_threshold_hours: 4
 
 下载失败的视频（包括用户主页批量下载和单视频链接下载）会自动记录到 `data/failed_videos/` 目录，支持查看和重试：
 
-```bash
+```powershell
 # 列出所有未处理的失败视频
 python run.py --list-failed
 
@@ -667,7 +709,7 @@ python run.py --mark-skipped <aweme_id>
 
 提供 `scripts/douyin.ps1` 统一入口脚本，支持所有操作模式：
 
-```bash
+```powershell
 # 查看帮助
 .\scripts\douyin.ps1 -Action help
 
@@ -892,7 +934,7 @@ url_delay:
 
 如果你要继续使用老脚本风格（V1.0），可切换到旧分支：
 
-```bash
+```powershell
 git fetch --all
 git switch V1.0
 ```
