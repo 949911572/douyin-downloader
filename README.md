@@ -92,7 +92,7 @@ cp config.example.yml config.yml
 
 ### 5) 获取 Cookie（推荐自动方式）
 
-```bash
+```powershell
 .\scripts\douyin.ps1 -Action refresh-cookies
 ```
 
@@ -176,14 +176,37 @@ python run.py -c config.yml \
 
 ## 典型场景
 
+### 下载方式说明
+
+本项目支持两种下载方式，可根据需求选择：
+
+| 方式 | 说明 | 适用场景 |
+|------|------|---------|
+| **普通下载** | 直接配置链接到 `link` 字段，脚本自动获取视频信息并下载 | 已知视频/用户链接，批量下载 |
+| **浏览器获取下载** | 通过浏览器打开页面，手动滚动加载内容，脚本采集链接后下载 | 需要登录访问（收藏页、私密内容），或分页受限 |
+
+---
+
 ### 下载单个视频
+
+**方式一：普通下载（直接配置链接）**
 
 ```yaml
 link:
   - https://www.douyin.com/video/7604129988555574538
 ```
 
+**方式二：浏览器获取下载（通过浏览器采集）**
+
+```powershell
+# 1. 通过浏览器扫描获取链接（单视频无需浏览器方式）
+# 2. 直接下载
+.\scripts\douyin.ps1 -Action download -Url "https://www.douyin.com/video/7604129988555574538"
+```
+
 ### 下载单个图文
+
+**方式一：普通下载（直接配置链接）**
 
 ```yaml
 link:
@@ -192,6 +215,8 @@ link:
 
 ### 批量下载作者主页作品
 
+**方式一：普通下载（直接配置链接）**
+
 ```yaml
 link:
   - https://www.douyin.com/user/MS4wLjABAAAAxxxx
@@ -199,6 +224,28 @@ mode:
   - post
 number:
   post: 50
+```
+
+**方式二：浏览器获取下载（分页受限时使用）**
+
+```powershell
+# 1. 通过浏览器扫描用户主页，获取完整视频链接
+.\scripts\douyin.ps1 -Action fetch-links -Url https://www.douyin.com/user/MS4wLjABAAAAxxxx
+
+# 2. 下载采集到的链接
+.\scripts\douyin.ps1 -ConfigFile config_temp.yml
+```
+
+### 下载个人收藏视频
+
+**方式：浏览器获取下载（收藏页需要登录访问）**
+
+```powershell
+# 1. 通过浏览器扫描收藏页面，获取收藏视频链接
+.\scripts\douyin.ps1 -Action fetch-links
+
+# 2. 下载采集到的链接
+.\scripts\douyin.ps1 -ConfigFile config_temp.yml
 ```
 
 ### 全量抓取（不限制数量）
@@ -471,11 +518,15 @@ data/
 
 ### 1) 只能抓到 20 条作品怎么办？
 
-这是翻页风控的常见现象。批量下载过程中如果遇到分页受限，系统会跳过该用户并记录到下载日志中。需要手动使用浏览器扫描补充：
+这是翻页风控的常见现象。批量下载过程中如果遇到分页受限，系统会跳过该用户并记录到下载日志中。需要使用**浏览器获取下载**方式补充：
 
-```bash
-# 扫描用户主页，获取完整视频列表
+```powershell
+# 方式一：浏览器获取下载（推荐）
+# 1. 通过浏览器扫描用户主页，获取完整视频链接
 .\scripts\douyin.ps1 -Action fetch-links -Url https://www.douyin.com/user/MS4wLjABAAAAxxxx
+
+# 2. 下载采集到的链接
+.\scripts\douyin.ps1 -ConfigFile config_temp.yml
 ```
 
 ### 2) 进度条出现重复刷屏怎么办？
@@ -487,7 +538,7 @@ data/
 
 按以下步骤操作：
 
-```bash
+```powershell
 # 1. 检查浏览器登录状态（确保已登录）
 .\scripts\douyin.ps1 -Action verify-login
 
@@ -660,40 +711,42 @@ python run.py --mark-skipped <aweme_id>
 
 **日常使用流程** 🍴：
 
-```bash
-# 1. 备份数据库（可选但推荐）
-.\scripts\douyin.ps1 -Action backup-db
-
-# 2. 检查浏览器登录状态（首次使用或登录过期时执行）
-.\scripts\douyin.ps1 -Action verify-login
-
-# 3. 刷新 Cookie（首次使用或登录过期时执行）
-.\scripts\douyin.ps1 -Action refresh-cookies
-
-# 4. 执行下载（下载前会自动检测 Cookie 有效性）
+```powershell
+# ===== 方式一：普通下载（直接配置链接）=====
+# 1. 配置链接到 config.yml 的 link 字段
+# 2. 执行下载
 .\scripts\douyin.ps1
 
-# 5. 重试失败链接
+# ===== 方式二：浏览器获取下载（需要登录或分页受限）=====
+# 1. 检查浏览器登录状态（首次使用或登录过期时执行）
+.\scripts\douyin.ps1 -Action verify-login
+
+# 2. 刷新 Cookie（首次使用或登录过期时执行）
+.\scripts\douyin.ps1 -Action refresh-cookies
+
+# 3. 通过浏览器扫描获取链接（收藏页或用户主页）
+.\scripts\douyin.ps1 -Action fetch-links              # 扫描收藏页
+.\scripts\douyin.ps1 -Action fetch-links -Url https://www.douyin.com/user/MS4wLjABAAAAxxxx  # 扫描用户主页
+
+# 4. 下载采集到的链接
+.\scripts\douyin.ps1 -ConfigFile config_temp.yml
+
+# ===== 通用操作 =====
+# 备份数据库（可选但推荐）
+.\scripts\douyin.ps1 -Action backup-db
+
+# 重试失败链接
 .\scripts\douyin.ps1 -Action retry-failed
 
-# 6. 批量标记无法下载的视频为跳过（人工确认后）
+# 批量标记无法下载的视频为跳过（人工确认后）
 .\scripts\douyin.ps1 -Action mark-all-failed-skipped
-
-# 7. 提取收藏视频或用户主页链接到临时配置
-#    无参数：扫描收藏页面
-.\scripts\douyin.ps1 -Action fetch-links
-#    带参数：扫描指定用户主页
-#    .\scripts\douyin.ps1 -Action fetch-links -Url https://www.douyin.com/user/MS4wLjABAAAAxxxx
-
-# 8. 下载临时配置中的链接
-.\scripts\douyin.ps1 -ConfigFile config_temp.yml
 ```
 
 ### 4. 数据库备份 🍴
 
 提供 `backup-db` 命令，一键备份 `dy_downloader.db` 到 `data/db_backup/` 目录：
 
-```bash
+```powershell
 # 通过 PowerShell 脚本
 .\scripts\douyin.ps1 -Action backup-db
 ```
@@ -808,20 +861,9 @@ url_delay:
 - **环境隔离**：与系统默认 Chrome 浏览器的登录状态相互独立，不会影响系统浏览器的账号
 - **数据安全**：登录状态保存在项目目录内，便于管理和备份
 
-### 12. 提取链接（收藏/用户主页）🍴
+### 12. 浏览器获取下载（fetch-links）🍴
 
-通过浏览器方式获取收藏视频或用户主页链接：
-
-```bash
-# 1. 获取收藏视频链接（无参数，写入 config_temp.yml）
-.\scripts\douyin.ps1 -Action fetch-links
-
-# 2. 获取指定用户主页链接（带 -Url 参数）
-.\scripts\douyin.ps1 -Action fetch-links -Url https://www.douyin.com/user/MS4wLjABAAAAxxxx
-
-# 3. 下载提取的链接
-.\scripts\douyin.ps1 -ConfigFile config_temp.yml
-```
+**功能说明**：通过浏览器方式获取收藏视频或用户主页链接，适用于需要登录访问的内容或分页受限场景。详细使用方法请查看上方「典型场景」章节中的「下载方式说明」和具体场景示例。
 
 **操作流程**：
 1. 执行 `fetch-links` 后，浏览器会打开抖音收藏页面（无参数）或指定用户主页（带参数）
