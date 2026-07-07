@@ -1,3 +1,11 @@
+"""
+单视频下载器模块
+负责下载单个抖音视频，支持：
+- 视频详情获取
+- 视频资源下载（视频、封面、音乐等）
+- 失败重试和错误记录
+"""
+
 from typing import Any, Dict
 
 from core.downloader_base import BaseDownloader, DownloadResult

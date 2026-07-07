@@ -1,3 +1,12 @@
+"""
+命令行入口模块
+提供命令行界面，处理用户输入并协调各模块工作：
+- 参数解析
+- 下载流程编排
+- 进度显示
+- 结果汇总
+"""
+
 import asyncio
 import argparse
 import json

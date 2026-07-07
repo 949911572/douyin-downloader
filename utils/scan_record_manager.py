@@ -1,6 +1,9 @@
 """
 扫描记录管理模块
-记录每个链接对应的用户信息和扫描状态，用于智能跳过判断
+记录每个链接对应的用户信息和扫描状态，用于智能跳过判断：
+- 记录扫描时间和结果
+- 根据阈值自动跳过近期已处理的链接
+- 失败记录检测（有失败则不跳过）
 """
 
 import os
@@ -50,10 +53,20 @@ class ScanRecordManager:
     def should_skip(self, url: str) -> bool:
         """判断是否应该跳过该链接（N小时内已成功处理）
         
+        跳过条件：
+        1. 阈值不为0
+        2. 存在记录
+        3. 上次扫描时间在阈值内
+        4. 记录完整（有sec_uid）
+        5. 无失败记录
+        6. 解析未失败
+        
         Args:
             url: 链接地址
+            
+        Returns:
+            是否应该跳过
         """
-        # 如果 skip_threshold_hours 为 0，则不限制跳过
         if self.skip_threshold_hours == 0:
             return False
         
@@ -61,7 +74,21 @@ class ScanRecordManager:
         if not record:
             return False
         
-        # 检查上次扫描时间是否在阈值内
+        return (
+            self._is_within_time_threshold(record)
+            and self._is_record_complete(record)
+            and not self._has_failure(record)
+        )
+    
+    def _is_within_time_threshold(self, record: Dict) -> bool:
+        """检查上次扫描时间是否在阈值内
+        
+        Args:
+            record: 扫描记录
+            
+        Returns:
+            是否在时间阈值内
+        """
         last_scan_time = record.get('last_scan_time')
         if not last_scan_time:
             return False
@@ -69,26 +96,32 @@ class ScanRecordManager:
         try:
             scan_time = datetime.strptime(last_scan_time, '%Y-%m-%d %H:%M:%S')
             cutoff_time = datetime.now() - timedelta(hours=self.skip_threshold_hours)
-            
-            if scan_time < cutoff_time:
-                return False
+            return scan_time >= cutoff_time
         except ValueError:
             return False
+    
+    def _is_record_complete(self, record: Dict) -> bool:
+        """检查记录是否完整（有sec_uid）
         
-        # 检查sec_uid是否完整（确保记录完整）
+        Args:
+            record: 扫描记录
+            
+        Returns:
+            记录是否完整
+        """
         sec_uid = record.get('sec_uid', '')
-        if not sec_uid:
-            return False
+        return bool(sec_uid)
+    
+    def _has_failure(self, record: Dict) -> bool:
+        """检查是否有失败记录
         
-        # 检查是否有失败记录
-        if record.get('failed', 0) > 0:
-            return False
-        
-        # 检查解析是否失败
-        if record.get('parse_failed', False):
-            return False
-        
-        return True
+        Args:
+            record: 扫描记录
+            
+        Returns:
+            是否有失败
+        """
+        return record.get('failed', 0) > 0 or record.get('parse_failed', False)
     
     def get_skip_reason(self, url: str) -> str:
         """获取跳过原因"""

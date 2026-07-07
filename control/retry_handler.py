@@ -1,3 +1,11 @@
+"""
+重试处理器模块
+提供异步操作的自动重试功能，支持：
+- 可配置的最大重试次数
+- 递增的重试延迟
+- 异常捕获和日志记录
+"""
+
 import asyncio
 from typing import Callable, Any, TypeVar
 from utils.logger import setup_logger

@@ -1,3 +1,12 @@
+"""
+URL解析器模块
+负责解析抖音URL并提取关键信息，支持：
+- 视频URL解析（提取aweme_id）
+- 用户主页URL解析（提取sec_uid）
+- 合集URL解析（提取mix_id）
+- 图文笔记URL解析（提取note_id）
+"""
+
 import re
 from typing import Optional, Dict, Any
 from urllib.parse import urlparse, parse_qs

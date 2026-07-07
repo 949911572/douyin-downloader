@@ -1,3 +1,11 @@
+"""
+下载器工厂模块
+根据URL类型创建对应的下载器实例，实现策略模式：
+- video类型 → VideoDownloader
+- user类型 → UserDownloader
+- gallery类型 → VideoDownloader（图文笔记）
+"""
+
 from typing import Dict, Any, Optional
 from core.downloader_base import BaseDownloader
 from core.video_downloader import VideoDownloader

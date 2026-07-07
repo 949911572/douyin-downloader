@@ -1,3 +1,13 @@
+"""
+抖音API客户端模块
+封装抖音API的异步请求，支持：
+- 用户作品列表获取
+- 视频详情获取
+- 用户信息获取
+- XBogus/ABogus签名生成
+- Cookie管理和请求限流
+"""
+
 from __future__ import annotations
 
 import asyncio

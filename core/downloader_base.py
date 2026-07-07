@@ -1,3 +1,13 @@
+"""
+下载器基类模块
+定义下载器的抽象接口和通用功能，包括：
+- BaseDownloader: 所有下载器的抽象基类
+- DownloadResult: 下载结果数据结构
+- ProgressReporter: 进度报告协议
+
+所有具体下载器（VideoDownloader、UserDownloader等）都继承自BaseDownloader
+"""
+
 import json
 import re
 from abc import ABC, abstractmethod
@@ -196,7 +206,17 @@ class BaseDownloader(ABC):
         self._local_aweme_ids.add(aweme_id)
 
     def _filter_by_time(self, aweme_list: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        # 时间过滤已移除，直接返回原始列表
+        """按时间过滤视频列表（已停用）
+
+        原设计用于通过配置中的 end_time 参数过滤视频，
+        但由于 end_time 配置已废弃，此方法当前直接返回原始列表。
+
+        Args:
+            aweme_list: 视频列表
+
+        Returns:
+            未过滤的原始视频列表
+        """
         return aweme_list
 
     def _limit_count(
@@ -244,10 +264,17 @@ class BaseDownloader(ABC):
             download_date=publish_date,
         )
 
-        def _result(success: bool, file_path: Optional[Path] = None, expected_name: str = "", file_count: int = 0):
+        def _result(success: bool, file_path: Optional[Path] = None, expected_name: str = "", file_count: int = 0) -> Dict[str, Any]:
             """构建统一的返回值，从中提取主文件信息。
-            success=True 时必须传 file_path 以获取文件名和大小；
-            success=False 时用 expected_name（为空则默认为 file_stem.mp4）。
+
+            Args:
+                success: 下载是否成功
+                file_path: 成功时的文件路径
+                expected_name: 失败时的期望文件名
+                file_count: 下载文件数量
+
+            Returns:
+                包含下载结果的字典
             """
             if success and file_path is not None and file_path.exists():
                 return {

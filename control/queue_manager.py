@@ -1,3 +1,11 @@
+"""
+任务队列管理器模块
+管理并发下载任务，控制最大并发数：
+- 基于Semaphore的并发控制
+- 批量任务处理
+- 异常捕获和错误返回
+"""
+
 import asyncio
 from typing import List, Callable, Any, TypeVar
 from utils.logger import setup_logger
@@ -12,8 +20,26 @@ class QueueManager:
         self.max_workers = max_workers
         self.semaphore = asyncio.Semaphore(max_workers)
 
-    async def process_tasks(self, tasks: List[Callable], *args, **kwargs) -> List[Any]:
-        async def _task_wrapper(task):
+    async def process_tasks(
+        self, 
+        tasks: List[Callable[..., Any]], 
+        *args, 
+        **kwargs
+    ) -> List[Any]:
+        """批量处理任务
+
+        将相同的参数传递给每个任务，适合所有任务使用相同参数的场景。
+        对于需要不同参数的任务，使用 download_batch 方法。
+
+        Args:
+            tasks: 可调用对象列表（支持异步函数）
+            args: 传递给每个任务的位置参数
+            kwargs: 传递给每个任务的关键字参数
+
+        Returns:
+            任务执行结果列表
+        """
+        async def _task_wrapper(task: Callable[..., Any]) -> Any:
             async with self.semaphore:
                 try:
                     return await task(*args, **kwargs)

@@ -1,3 +1,12 @@
+"""
+用户作品下载器模块
+负责下载抖音用户的所有作品，支持：
+- 用户信息获取
+- 作品列表分页获取
+- 增量更新（基于上次最新视频时间）
+- 多模式下载（post/like/mix等）
+"""
+
 from typing import Any, Dict, List
 from datetime import datetime
 

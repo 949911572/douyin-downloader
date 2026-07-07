@@ -1,3 +1,12 @@
+"""
+Cookie管理模块
+管理抖音登录Cookie的加载、保存和验证：
+- Cookie文件持久化
+- Cookie格式标准化
+- 必要Cookie字段验证
+- 支持从配置文件或环境变量加载
+"""
+
 import json
 from pathlib import Path
 from typing import Dict, Optional

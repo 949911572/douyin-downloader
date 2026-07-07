@@ -1,6 +1,19 @@
+"""
+数据库管理模块
+使用SQLite存储下载记录和元数据，支持：
+- 下载状态追踪（aweme表）
+- 下载历史记录（download_history表）
+- 转写任务管理（transcript_job表）
+- 自动建表和索引优化
+"""
+
 import aiosqlite
 from typing import Dict, Any, Optional
 from datetime import datetime
+
+from utils.logger import setup_logger
+
+logger = setup_logger('Database')
 
 
 class Database:
@@ -33,8 +46,13 @@ class Database:
                 await db.execute('''
                     ALTER TABLE aweme ADD COLUMN status TEXT DEFAULT 'downloaded'
                 ''')
-            except Exception:
-                pass
+            except aiosqlite.OperationalError as e:
+                if "duplicate column name" in str(e).lower():
+                    pass
+                else:
+                    logger.warning(f"Failed to add status column: {e}")
+            except Exception as e:
+                logger.warning(f"Unexpected error adding status column: {e}")
 
             await db.execute('''
                 CREATE TABLE IF NOT EXISTS download_history (
