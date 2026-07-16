@@ -243,10 +243,11 @@ class DouyinAPIClient:
                 if response.status == 200:
                     return await response.json(content_type=None)
                 logger.error(
-                    f"User post request failed: {sec_uid}, status={response.status}"
+                    "User post request failed: %s, status=%s",
+                    sec_uid, response.status
                 )
         except Exception as e:
-            logger.error(f"Failed to get user post: {sec_uid}, error: {e}")
+            logger.error("Failed to get user post: %s, error: %s", sec_uid, e)
 
         return {}
 
@@ -268,10 +269,11 @@ class DouyinAPIClient:
                     data = await response.json(content_type=None)
                     return data.get("user")
                 logger.error(
-                    f"User info request failed: {sec_uid}, status={response.status}"
+                    "User info request failed: %s, status=%s",
+                    sec_uid, response.status
                 )
         except Exception as e:
-            logger.error(f"Failed to get user info: {sec_uid}, error: {e}")
+            logger.error("Failed to get user info: %s, error: %s", sec_uid, e)
 
         return None
 
@@ -281,7 +283,7 @@ class DouyinAPIClient:
             async with self._session.get(short_url, allow_redirects=True) as response:
                 return str(response.url)
         except Exception as e:
-            logger.error(f"Failed to resolve short URL: {short_url}, error: {e}")
+            logger.error("Failed to resolve short URL: %s, error: %s", short_url, e)
             return None
 
 

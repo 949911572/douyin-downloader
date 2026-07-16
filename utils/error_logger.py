@@ -97,3 +97,7 @@ class ErrorLogger:
 
     def get_error_count(self) -> int:
         return self._error_count
+
+    @property
+    def session_file(self) -> str:
+        return self._session_file

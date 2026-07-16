@@ -23,6 +23,7 @@ class TranscriptManager:
         self.config = config
         self.file_manager = file_manager
         self.database = database
+        self._session: Optional[aiohttp.ClientSession] = None
 
     def _cfg(self) -> Dict[str, Any]:
         return self.config.get("transcript", {}) or {}
@@ -173,6 +174,17 @@ class TranscriptManager:
             async with aiofiles.open(json_path, "w", encoding="utf-8") as f:
                 await f.write(json.dumps(payload, ensure_ascii=False, indent=2))
 
+    async def _get_session(self) -> aiohttp.ClientSession:
+        if self._session is None or self._session.closed:
+            timeout = aiohttp.ClientTimeout(total=600)
+            self._session = aiohttp.ClientSession(timeout=timeout)
+        return self._session
+
+    async def close(self) -> None:
+        if self._session and not self._session.closed:
+            await self._session.close()
+            self._session = None
+
     async def _call_openai_transcription(
         self, api_key: str, video_path: Path, model: str
     ) -> Dict[str, Any]:
@@ -190,6 +202,7 @@ class TranscriptManager:
             form.add_field("language", language_hint)
 
         content_type = self._guess_video_content_type(video_path)
+        session = await self._get_session()
         with video_path.open("rb") as f:
             form.add_field(
                 "file",
@@ -197,23 +210,21 @@ class TranscriptManager:
                 filename=video_path.name,
                 content_type=content_type,
             )
-            timeout = aiohttp.ClientTimeout(total=600)
-            async with aiohttp.ClientSession(timeout=timeout) as session:
-                async with session.post(
-                    api_url,
-                    data=form,
-                    headers={"Authorization": f"Bearer {api_key}"},
-                ) as response:
-                    if response.status != 200:
-                        body = await response.text()
-                        raise RuntimeError(
-                            f"OpenAI transcription failed: status={response.status}, body={body}"
-                        )
+            async with session.post(
+                api_url,
+                data=form,
+                headers={"Authorization": f"Bearer {api_key}"},
+            ) as response:
+                if response.status != 200:
+                    body = await response.text()
+                    raise RuntimeError(
+                        f"OpenAI transcription failed: status={response.status}, body={body}"
+                    )
 
-                    payload = await response.json(content_type=None)
-                    if not isinstance(payload, dict):
-                        raise RuntimeError("OpenAI transcription returned invalid payload")
-                    return payload
+                payload = await response.json(content_type=None)
+                if not isinstance(payload, dict):
+                    raise RuntimeError("OpenAI transcription returned invalid payload")
+                return payload
 
     @staticmethod
     def _guess_video_content_type(video_path: Path) -> str:

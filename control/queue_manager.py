@@ -44,10 +44,10 @@ class QueueManager:
                 try:
                     return await task(*args, **kwargs)
                 except Exception as e:
-                    logger.error(f"Task failed: {e}")
-                    return None
+                    logger.error(f"Task failed: {e}", exc_info=True)
+                    raise
 
-        results = await asyncio.gather(*[_task_wrapper(task) for task in tasks], return_exceptions=True)
+        results = await asyncio.gather(*[_task_wrapper(task) for task in tasks], return_exceptions=False)
         return results
 
     async def download_batch(self, download_func: Callable, items: List[Any]) -> List[Any]:

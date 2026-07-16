@@ -7,6 +7,10 @@ SCRIPT_DIR = Path(__file__).parent.resolve()
 PROJECT_DIR = SCRIPT_DIR.parent
 sys.path.insert(0, str(PROJECT_DIR))
 
+from utils.logger import setup_logger
+
+logger = setup_logger('FetchLinks')
+
 
 async def fetch_links(target_url=None):
     """从浏览器获取视频链接
@@ -182,8 +186,8 @@ async def fetch_links(target_url=None):
                             title_elem = await elem.query_selector("div[data-e2e='video-desc']")
                             if title_elem:
                                 title = await title_elem.inner_text()
-                        except:
-                            pass
+                        except Exception as exc:
+                            logger.debug("Failed to get title for aweme %s: %s", aweme_id, exc)
 
                         links.append({
                             "aweme_id": aweme_id,
@@ -238,8 +242,8 @@ async def fetch_links(target_url=None):
         
         try:
             await ctx.close()
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.debug("Browser close failed: %s", exc)
         print("\n[结束] 浏览器已关闭")
 
 

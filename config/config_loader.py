@@ -5,8 +5,11 @@ from typing import Any, Dict, List, Optional
 
 import yaml
 from utils.cookie_utils import parse_cookie_header, sanitize_cookies
+from utils.logger import setup_logger
 
 from .default_config import DEFAULT_CONFIG
+
+logger = setup_logger("ConfigLoader")
 
 
 class ConfigLoader:
@@ -94,8 +97,6 @@ class ConfigLoader:
         if not links:
             errors.append("配置错误：未配置任何下载链接 (link)")
         elif len(links) > 100:
-            from utils.logger import setup_logger
-            logger = setup_logger("ConfigLoader")
             logger.warning(f"链接数量较多 ({len(links)}个)，建议分批下载以提高稳定性")
         
         # 检查下载路径
@@ -122,10 +123,8 @@ class ConfigLoader:
         
         # 输出错误信息
         if errors:
-            from utils.logger import setup_logger
-            logger = setup_logger("ConfigLoader")
             for error in errors:
                 logger.error(error)
             return False
-        
+
         return True

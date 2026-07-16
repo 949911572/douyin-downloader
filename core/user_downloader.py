@@ -88,6 +88,28 @@ class UserDownloader(BaseDownloader):
 
         return result
 
+    @staticmethod
+    def _filter_by_timestamp(
+        aweme_items: List[Dict[str, Any]], filter_timestamp: int
+    ) -> tuple:
+        """按时间戳过滤作品列表。
+
+        Returns:
+            (filtered_items, all_before) 元组。
+            all_before=True 表示所有作品均早于过滤时间。
+        """
+        if filter_timestamp <= 0:
+            return aweme_items, False
+
+        filtered_items = []
+        all_before = True
+        for item in aweme_items:
+            create_time = item.get("create_time", 0)
+            if create_time >= filter_timestamp:
+                filtered_items.append(item)
+                all_before = False
+        return filtered_items, all_before
+
     async def _download_user_post(
         self, sec_uid: str, user_info: Dict[str, Any], last_video_time: str = None, first_page_data: Dict[str, Any] = None
     ) -> DownloadResult:
@@ -131,22 +153,11 @@ class UserDownloader(BaseDownloader):
 
             aweme_items = data.get("aweme_list", [])
             if aweme_items:
-                # 统一时间过滤逻辑
-                if filter_timestamp > 0:
-                    filtered_items = []
-                    all_before = True
-                    for item in aweme_items:
-                        create_time = item.get("create_time", 0)
-                        if create_time >= filter_timestamp:
-                            filtered_items.append(item)
-                            all_before = False
-                    
-                    if all_before:
-                        logger.info(f"所有视频均早于 {filter_reason}，停止分页")
-                        has_more = False
-                    
-                    aweme_items = filtered_items
-                
+                aweme_items, all_before = self._filter_by_timestamp(aweme_items, filter_timestamp)
+                if all_before:
+                    logger.info(f"所有视频均早于 {filter_reason}，停止分页")
+                    has_more = False
+
                 aweme_list.extend(aweme_items)
                 self._progress_update_step(
                     "拉取作品列表", f"已抓取 {len(aweme_list)} 条"
@@ -182,22 +193,12 @@ class UserDownloader(BaseDownloader):
                 break
 
             # 统一时间过滤逻辑
-            if filter_timestamp > 0:
-                filtered_items = []
-                all_before = True
-                for item in aweme_items:
-                    create_time = item.get("create_time", 0)
-                    if create_time >= filter_timestamp:
-                        filtered_items.append(item)
-                        all_before = False
-                
-                if all_before:
-                    # 本页所有视频都早于过滤时间，停止分页
-                    logger.info(f"所有视频均早于 {filter_reason}，停止分页")
-                    break
-                
-                aweme_items = filtered_items
-            
+            aweme_items, all_before = self._filter_by_timestamp(aweme_items, filter_timestamp)
+            if all_before:
+                # 本页所有视频都早于过滤时间，停止分页
+                logger.info(f"所有视频均早于 {filter_reason}，停止分页")
+                break
+
             aweme_list.extend(aweme_items)
             self._progress_update_step(
                 "拉取作品列表", f"已抓取 {len(aweme_list)} 条"

@@ -1,5 +1,22 @@
 # 抖音下载器 V2.1（Douyin Downloader）
 
+<!-- 项目元数据（AI 易读） -->
+<!--
+meta:
+  name: douyin-downloader
+  version: 2.1.0
+  upstream: jiji262/douyin-downloader
+  fork_from: pengkunhy/douyin-downloader
+  language: Python 3.8+
+  database: SQLite (dy_downloader.db)
+  browser: Playwright Chromium
+  entry_point: run.py
+  ps1_entry: scripts/douyin.ps1
+  config_file: config.yml
+  config_template: config.example.yml
+  is_fork: true
+-->
+
 ![douyin-downloader](https://socialify.git.ci/jiji262/douyin-downloader/image?custom_description=%E6%8A%96%E9%9F%B3%E6%89%B9%E9%87%8F%E4%B8%8B%E8%BD%BD%E5%B7%A5%E5%85%B7%EF%BC%8C%E5%8E%BB%E6%B0%B4%E5%8D%B0%EF%BC%8C%E6%94%AF%E6%8C%81%E8%A7%86%E9%A2%91%E3%80%81%E5%9B%BE%E9%9B%86%E3%80%81%E4%BD%9C%E8%80%85%E4%B8%BB%E9%A1%B5%E6%89%B9%E9%87%8F%E4%B8%8B%E8%BD%BD%E3%80%82&description=1&font=Jost&forks=1&logo=https%3A%2F%2Fraw.githubusercontent.com%2Fjiji262%2Fdouyin-downloader%2Frefs%2Fheads%2FV1.0%2Fimg%2Flogo.png&name=1&owner=1&pattern=Circuit+Board&pulls=1&stargazers=1&theme=Light)
 
 > 🔄 **本项目是 jiji262/douyin-downloader 的 fork 版本**，主要差异：
@@ -18,6 +35,80 @@
 
 > ⚠️ 本项目已重大升级到 **V2.0**，后续功能迭代与问题修复将主要在 `main` 分支进行。  
 > **V1.0 仍可使用**，但仅做低频维护，不会持续高频更新。
+
+## 目录
+
+- [功能概览](#功能概览)
+- [快速开始](#快速开始)
+- [核心术语表](#核心术语表)
+- [项目架构](#项目架构)
+- [最小可用配置](#最小可用配置)
+- [使用方式](#使用方式)
+- [典型场景](#典型场景)
+- [辅助脚本说明](#辅助脚本说明)
+- [可选功能：视频转写（transcript）](#可选功能视频转写transcript)
+- [配置项完整参考](#配置项完整参考)
+- [输出目录](#输出目录)
+- [运行时数据目录](#运行时数据目录-🍴)
+- [数据结构参考](#数据结构参考)
+- [常见问题](#常见问题)
+- [Fork 版本扩展功能](#-fork-版本扩展功能)
+
+## 核心术语表
+
+| 术语 | 类型 | 说明 |
+|------|------|------|
+| `aweme_id` | string | 抖音作品唯一标识（视频/图文通用），19位数字 |
+| `sec_uid` | string | 抖音用户加密 UID，用户主页 URL 中的唯一标识 |
+| `msToken` | string | 抖音请求签名所需 token，从页面源码或 Cookie 中获取 |
+| `ttwid` | string | 抖音 Cookie 关键字段，用于标识访客/会话 |
+| `odin_tt` | string | 抖音 Cookie 关键字段，设备/安装标识 |
+| `passport_csrf_token` | string | 抖音登录态 CSRF 令牌 |
+| `sid_guard` | string | 会话标识 Cookie，推荐填写以增强稳定性 |
+| `a_bogus` / `x_bogus` | string | 抖音反爬签名参数，代码自动生成 |
+| `scan_records.json` | file | 增量更新扫描记录文件，保存用户上次扫描时间和最新视频时间 |
+| `dy_downloader.db` | file | SQLite 数据库文件，记录下载历史用于去重 |
+
+## 项目架构
+
+### 模块划分
+
+| 层级 | 目录/文件 | 核心职责 | 关键文件 |
+|------|----------|---------|---------|
+| 入口层 | `run.py`, `cli/` | 命令行解析、启动流程、进度展示 | `cli/main.py`, `cli/progress_display.py` |
+| 核心下载层 | `core/` | 下载器、API 客户端、URL 解析、转写管理 | `core/downloader_base.py`, `core/user_downloader.py`, `core/video_downloader.py`, `core/api_client.py` |
+| 认证层 | `auth/` | Cookie 管理、msToken 管理 | `auth/cookie_manager.py`, `auth/ms_token_manager.py` |
+| 配置层 | `config/` | 配置加载、默认配置 | `config/config_loader.py`, `config/default_config.py` |
+| 存储层 | `storage/` | 数据库、文件管理、元数据处理 | `storage/database.py`, `storage/file_manager.py`, `storage/metadata_handler.py` |
+| 控制层 | `control/` | 队列、重试、限流 | `control/queue_manager.py`, `control/retry_handler.py`, `control/rate_limiter.py` |
+| 工具层 | `utils/` | 浏览器配置、错误日志、扫描记录等 | `utils/browser_config.py`, `utils/error_logger.py`, `utils/scan_record_manager.py`, `utils/failed_video_manager.py` |
+| 脚本层 | `scripts/` | PowerShell 入口、辅助脚本 | `scripts/douyin.ps1`, `scripts/verify_login.py`, `scripts/fetch_links.py` |
+
+### 核心类关系
+
+```
+run.py → cli/main.py
+    ↓
+DownloaderFactory → 根据 URL 类型创建下载器
+    ├─ UserDownloader    (用户主页批量下载)
+    └─ VideoDownloader   (单视频/图文下载)
+    ↓  继承
+DownloaderBase (下载逻辑基类)
+    ├─ ApiClient         (抖音 API 请求)
+    ├─ Database          (SQLite 去重与记录)
+    ├─ RetryHandler      (重试控制)
+    ├─ RateLimiter       (请求限流)
+    └─ ErrorLogger       (错误日志)
+```
+
+### 数据流向
+
+1. 读取 `config.yml` → 解析配置
+2. 解析 `link` 中的 URL → 调用 `DownloaderFactory`
+3. 用户主页 → `UserDownloader` → 调用 API 获取作品列表 → 逐个下载
+4. 单视频 → `VideoDownloader` → 调用 API 获取详情 → 下载
+5. 下载结果 → 写入 `dy_downloader.db` + `data/logs/` + `data/failed_videos/`
+6. 增量更新信息 → 写入 `data/scan_records.json`
 
 ## 功能概览
 
@@ -132,6 +223,7 @@ cp config.example.yml config.yml
    - `ttwid`
    - `odin_tt`
    - `passport_csrf_token`
+   - `sid_guard`（会话标识，推荐填写）
    - `msToken`（可在页面源码中搜索）
 
 > **注意**：Cookie 包含账号敏感信息，请勿泄露。
@@ -150,6 +242,9 @@ mode:
 
 number:
   post: 0
+
+increase:
+  post: true
 
 thread: 1
 retry_times: 3
@@ -203,14 +298,27 @@ python run.py -c config.yml `
   -p ./Downloaded
 ```
 
-参数说明：
+### 命令行参数参考
 
-- `-u, --url`：追加下载链接（可重复传入）
-- `-c, --config`：指定配置文件
-- `-p, --path`：指定下载目录
-- `-t, --thread`：指定并发数
-- `--show-warnings`：显示 warning/error 日志
-- `-v, --verbose`：显示 info/warning/error 日志
+#### 基础参数
+
+| 参数 | 短选项 | 类型 | 默认值 | 说明 | Fork专属 |
+|------|--------|------|--------|------|---------|
+| `--url` | `-u` | string（可重复） | - | 追加下载链接，可多次传入 | ❌ |
+| `--config` | `-c` | string | `config.yml` | 指定配置文件路径 | ❌ |
+| `--path` | `-p` | string | - | 指定下载目录 | ❌ |
+| `--thread` | `-t` | int | - | 指定并发数 | ❌ |
+| `--show-warnings` | - | bool | `false` | 显示 warning/error 日志 | ❌ |
+| `--verbose` | `-v` | bool | `false` | 显示 info/warning/error 日志 | ❌ |
+
+#### 失败视频管理 🍴
+
+| 参数 | 类型 | 说明 | Fork专属 |
+|------|------|------|---------|
+| `--list-failed` | bool | 列出所有未处理的失败视频 | ✅ |
+| `--retry-failed` | bool | 重试所有失败视频 | ✅ |
+| `--mark-skipped` | string | 将指定 aweme_id 标记为跳过（写入数据库） | ✅ |
+| `--mark-all-failed-skipped` | bool | 批量标记所有失败视频为跳过（执行前自动备份数据库） | ✅ |
 
 ## 典型场景
 
@@ -314,7 +422,8 @@ number:
 | `douyin.ps1` | PowerShell | **统一入口脚本**（推荐），支持下载、重试、标记跳过、检查登录、刷新 Cookie 等所有操作 🍴 |
 | `verify_login.py` | Python | 人工确认浏览器登录状态（打开浏览器，检查/完成登录） 🍴 |
 | `fetch_links.py` | Python | 从浏览器获取收藏视频或用户主页链接 🍴 |
-| `_refresh_cookies.py` | Python | Cookie 刷新核心逻辑 🍴 |
+| `check_cookies.py` | Python | 检查配置文件中 Cookie 字段是否完整 🍴 |
+| `_refresh_cookies.py` | Python | Cookie 刷新核心逻辑（内部脚本，建议通过 douyin.ps1 调用） 🍴 |
 
 ## 可选功能：视频转写（transcript）
 
@@ -353,16 +462,115 @@ export OPENAI_API_KEY="sk-xxxx"
 
 若 `database: true`，会在数据库 `transcript_job` 表记录状态（`success/failed/skipped`）。
 
-## 关键配置项（按当前代码实际生效）
+## 配置项完整参考
 
-- `mode`：当前仅 `post` 生效（`like` / `mix` / `collection` 为预留字段，尚未实现）
-- `number`：当前仅 `number.post` 生效（`number.like` / `number.mix` / `number.music` / `number.allmix` 为预留字段，尚未实现）
-- `increase`：当前仅 `increase.post` 生效（`increase.like` / `increase.mix` 等为预留字段，尚未实现）
-- `folderstyle`：控制按作品维度创建子目录
-- `progress.quiet_logs`：进度阶段静默日志，减少刷屏
-- `transcript.*`：视频下载后的可选转写
-- `skip_threshold_hours`：URL级别跳过阈值（默认4小时），详细逻辑见"下载跳过逻辑流程"🍴
-- `url_delay.*`：URL间随机延迟配置，降低被限流风险🍴
+> 标注 🍴 为 Fork 版本扩展配置，上游可能不具备。
+> 标注 [预留] 为尚未实现的配置项，仅做占位。
+
+### 基础配置
+
+| 配置路径 | 类型 | 默认值 | 说明 | Fork专属 | 状态 |
+|---------|------|--------|------|---------|------|
+| `link` | list[string] | `[]` | 下载链接列表，支持单视频、图文、用户主页链接 | ❌ | 已实现 |
+| `path` | string | `./Downloaded/` | 下载目录，支持相对路径和绝对路径 | ❌ | 已实现 |
+| `folderstyle` | bool | `true` | 是否按作者名和日期创建嵌套目录结构 | ❌ | 已实现 |
+| `thread` | int | `1` | 并发线程数，建议设置为 1 以降低限流风险 | ❌ | 已实现 |
+| `retry_times` | int | `3` | 单个任务重试次数（顶层配置） | ❌ | 已实现 |
+| `database` | bool | `true` | 是否启用数据库去重 | ❌ | 已实现 |
+| `skip_threshold_hours` | int | `4` | URL 级别跳过阈值，短时间内重复扫描的用户自动跳过 | ✅ | 已实现 |
+
+### 辅助资源下载开关
+
+| 配置路径 | 类型 | 默认值 | 说明 | Fork专属 | 状态 |
+|---------|------|--------|------|---------|------|
+| `music` | bool | `false` | 是否下载背景音乐 | ❌ | 已实现 |
+| `cover` | bool | `false` | 是否下载封面图片 | ❌ | 已实现 |
+| `avatar` | bool | `false` | 是否下载作者头像 | ❌ | 已实现 |
+| `json` | bool | `false` | 是否下载元数据 JSON 文件 | ❌ | 已实现 |
+
+### 下载模式配置
+
+| 配置路径 | 类型 | 默认值 | 说明 | Fork专属 | 状态 |
+|---------|------|--------|------|---------|------|
+| `mode` | list[string] | `[post]` | 下载模式，目前仅支持 `post`（用户作品） | ❌ | 部分实现 |
+| `mode[].post` | - | - | 用户作品下载 | ❌ | 已实现 |
+| `mode[].like` | - | - | 点赞下载 | ❌ | [预留] 未实现 |
+| `mode[].mix` | - | - | 合集下载 | ❌ | [预留] 未实现 |
+| `mode[].allmix` | - | - | 全部合集 | ❌ | [预留] 未实现 |
+| `mode[].music` | - | - | 音乐作品 | ❌ | [预留] 未实现 |
+
+### 数量限制配置
+
+| 配置路径 | 类型 | 默认值 | 说明 | Fork专属 | 状态 |
+|---------|------|--------|------|---------|------|
+| `number.post` | int | `0` | 用户作品数量限制，0 表示不限制 | ❌ | 已实现 |
+| `number.like` | int | `0` | 点赞作品数量限制 | ❌ | [预留] 未实现 |
+| `number.allmix` | int | `0` | 合集数量限制 | ❌ | [预留] 未实现 |
+| `number.mix` | int | `0` | 单个合集下载数量限制 | ❌ | [预留] 未实现 |
+| `number.music` | int | `0` | 音乐作品数量限制 | ❌ | [预留] 未实现 |
+
+### 增量更新配置 🍴
+
+| 配置路径 | 类型 | 默认值 | 说明 | Fork专属 | 状态 |
+|---------|------|--------|------|---------|------|
+| `increase.post` | bool | `true` | 用户作品增量更新，基于 `last_video_time` 只下载更新的内容 | ✅ | 已实现 |
+| `increase.like` | bool | `false` | 点赞作品增量更新 | ❌ | [预留] 未实现 |
+| `increase.allmix` | bool | `false` | 合集增量更新 | ❌ | [预留] 未实现 |
+| `increase.mix` | bool | `false` | 单个合集增量更新 | ❌ | [预留] 未实现 |
+| `increase.music` | bool | `false` | 音乐作品增量更新 | ❌ | [预留] 未实现 |
+
+### 重试配置
+
+| 配置路径 | 类型 | 默认值 | 说明 | Fork专属 | 状态 |
+|---------|------|--------|------|---------|------|
+| `retry.max_retries` | int | `3` | 最大重试次数 | ❌ | 已实现 |
+| `retry.delay` | int | `5` | 重试间隔（秒） | ❌ | 已实现 |
+
+### 进度显示配置
+
+| 配置路径 | 类型 | 默认值 | 说明 | Fork专属 | 状态 |
+|---------|------|--------|------|---------|------|
+| `progress.quiet_logs` | bool | `true` | 是否启用静默模式，减少进度阶段的日志输出 | ❌ | 已实现 |
+
+### 视频转写配置
+
+| 配置路径 | 类型 | 默认值 | 说明 | Fork专属 | 状态 |
+|---------|------|--------|------|---------|------|
+| `transcript.enabled` | bool | `false` | 是否启用视频转写 | ❌ | 已实现 |
+| `transcript.model` | string | `gpt-4o-mini-transcribe` | 转写模型 | ❌ | 已实现 |
+| `transcript.output_dir` | string | `""` | 输出目录，留空则与视频同目录 | ❌ | 已实现 |
+| `transcript.response_formats` | list[string] | `[txt, json]` | 输出格式 | ❌ | 已实现 |
+| `transcript.api_url` | string | `https://api.openai.com/v1/audio/transcriptions` | API 地址 | ❌ | 已实现 |
+| `transcript.api_key_env` | string | `OPENAI_API_KEY` | API Key 环境变量名 | ❌ | 已实现 |
+| `transcript.api_key` | string | `""` | API Key（不推荐硬编码，使用环境变量） | ❌ | 已实现 |
+
+### 浏览器兜底配置 🍴
+
+| 配置路径 | 类型 | 默认值 | 说明 | Fork专属 | 状态 |
+|---------|------|--------|------|---------|------|
+| `browser_fallback.enabled` | bool | `true` | 是否启用浏览器兜底（API 获取失败时用浏览器方式获取） | ✅ | 已实现 |
+| `browser_fallback.headless` | bool | `false` | 是否无头模式，false 显示浏览器窗口便于排错 | ✅ | 已实现 |
+| `browser_fallback.max_scrolls` | int | `240` | 最大滚动次数 | ✅ | 已实现 |
+| `browser_fallback.idle_rounds` | int | `8` | 空闲检测轮数 | ✅ | 已实现 |
+| `browser_fallback.wait_timeout_seconds` | int | `600` | 等待超时时间（秒） | ✅ | 已实现 |
+
+### 请求限流配置 🍴
+
+| 配置路径 | 类型 | 默认值 | 说明 | Fork专属 | 状态 |
+|---------|------|--------|------|---------|------|
+| `url_delay.enabled` | bool | `true` | 是否启用 URL 间随机延迟 | ✅ | 已实现 |
+| `url_delay.min_seconds` | int | `2` | 最小延迟秒数 | ✅ | 已实现 |
+| `url_delay.max_seconds` | int | `5` | 最大延迟秒数 | ✅ | 已实现 |
+
+### Cookie 配置
+
+| 配置路径 | 类型 | 默认值 | 说明 | Fork专属 | 状态 |
+|---------|------|--------|------|---------|------|
+| `cookies.msToken` | string | `""` | msToken | ❌ | 已实现 |
+| `cookies.ttwid` | string | `""` | ttwid（必需） | ❌ | 已实现 |
+| `cookies.odin_tt` | string | `""` | odin_tt（必需） | ❌ | 已实现 |
+| `cookies.passport_csrf_token` | string | `""` | passport_csrf_token（必需） | ❌ | 已实现 |
+| `cookies.sid_guard` | string | `""` | sid_guard（推荐填写，增强稳定性） | ❌ | 已实现 |
 
 ## 输出目录
 
@@ -373,7 +581,7 @@ Downloaded/
 ├── download_manifest.jsonl
 └── 作者名/
     └── post/
-        └── 2024-02-07_作品标题_aweme_id/
+        └── 2024-02-07_作品标题/
             ├── ...mp4
             ├── ..._cover.jpg
             ├── ..._music.mp3
@@ -382,6 +590,8 @@ Downloaded/
             ├── ...transcript.txt      # transcript.enabled=true 且格式包含 txt
             └── ...transcript.json     # transcript.enabled=true 且格式包含 json
 ```
+
+> 🍴 **Fork 说明**：目录名格式为 `{日期}_{标题}`，不再拼接 aweme_id，避免 Windows 路径长度限制。aweme_id 仍记录在数据库和 `_data.json` 元数据中，不影响去重。
 
 ### download_manifest.jsonl 说明
 
@@ -460,473 +670,157 @@ data/
 
 每次下载任务执行完成后，会自动生成下载执行结果报告，保存到 `data/logs/download_YYYYMMDD_HHMMSS.txt`。
 
-**报告内容**：
-- **目标目录**：下载文件保存路径
-- **用户主页下载**：按用户分组显示下载明细（作者名、总数、跳过、成功、失败）
-- **单视频链接下载**：按链接显示下载结果（链接、作者、状态、成功/失败视频列表）
-- **解析失败链接**：无法解析的 URL 列表
-- **智能跳过用户**：因跳过阈值限制被跳过的用户（仅用户主页下载）
-- **总计统计**：各类下载的汇总数据
-- **失败原因分类**：按错误类型统计（HTTP 404、HTTP 403、获取详情失败等）
+**报告包含以下部分**：
 
-**报告输出示例**：
-```text
-============================================================
-  抖音下载 · 执行结果报告
-============================================================
-  目标目录:    ./Downloaded/
+| 部分 | 说明 |
+|------|------|
+| 目标目录 | 下载文件保存路径 |
+| 用户主页下载 | 按用户分组显示下载明细（作者名、总数、跳过、成功、失败） |
+| 单视频链接下载 | 按链接显示下载结果（链接、作者、状态、成功/失败视频列表） |
+| 解析失败链接 | 无法解析的 URL 列表 |
+| 智能跳过用户 | 因跳过阈值限制被跳过的用户（仅用户主页下载） |
+| 总计统计 | 各类下载的汇总数据 |
+| 失败原因分类 | 按错误类型统计（HTTP 404、HTTP 403、获取详情失败等） |
 
-============================================================
-【用户主页下载】（链接数：2）
-============================================================
+## 数据结构参考
 
-  1，用户名[sec_uid]/10/2/7/1
-    成功下载视频 (7 个):
-      - https://www.douyin.com/video/xxx | 标题... | 文件名.mp4
-    下载失败视频 (1 个):
-      - https://www.douyin.com/video/xxx | Download failed: HTTP 404
-
-============================================================
-【单视频链接下载】（链接数：5）
-============================================================
-
-  1，https://www.douyin.com/video/xxx
-      作者: xxx
-      状态: 总数 1 / 跳过 0 / 成功 1 / 失败 0
-      成功下载:
-        - https://www.douyin.com/video/xxx | 标题...
-
-============================================================
-【解析失败链接】（链接数：1）
-============================================================
-  1. https://xxx
-
-============================================================
-【总计统计】
-============================================================
-  用户主页下载:
-      待下载: 10 个
-      成功:   7 个
-      跳过:   2 个
-      失败:   1 个
-
-  单视频链接下载:
-      待下载: 5 个
-      成功:   4 个
-      跳过:   0 个
-      失败:   1 个
-
-  合计:
-      待下载: 15 个
-      成功:   11 个
-      跳过:   2 个
-      失败:   2 个
-
-============================================================
-【失败原因分类】
-============================================================
-  HTTP 404 - 资源未找到: 1 个
-  HTTP 403 - 访问被拒绝: 1 个
-
-  提示：HTTP 404/403 可能因视频源不可用、CDN资源过期或删除、地域限制、权限限制或临时网络问题导致
-============================================================
-```
-
-### 数据库文件 🍴
+### 数据库表（dy_downloader.db）🍴
 
 项目根目录下的 `dy_downloader.db` 是 SQLite 数据库文件，用于记录下载历史和去重。
 
-**aweme 表结构**（🍴 Fork 版本扩展）：
+#### aweme 表
+
+| 字段 | 类型 | 说明 | Fork扩展 |
+|------|------|------|---------|
+| `id` | INTEGER | 主键 | ❌ |
+| `aweme_id` | TEXT | 作品ID（唯一索引） | ❌ |
+| `aweme_type` | TEXT | 作品类型（video/note） | ❌ |
+| `title` | TEXT | 作品标题 | ❌ |
+| `author_id` | TEXT | 作者ID | ❌ |
+| `author_name` | TEXT | 作者名 | ❌ |
+| `create_time` | INTEGER | 作品发布时间戳 | ❌ |
+| `download_time` | INTEGER | 入库时间戳 | ✅ |
+| `file_path` | TEXT | 文件路径 | ❌ |
+| `metadata` | TEXT | 元数据JSON | ❌ |
+| `status` | TEXT | 下载状态：`downloaded`（真实下载）/ `skipped`（手动跳过） | ✅ |
+
+**去重逻辑**：下载前检查 `aweme_id` 是否存在，存在则跳过。
+
+#### transcript_job 表
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| id | INTEGER | 主键 |
-| aweme_id | TEXT | 视频ID（唯一索引） |
-| aweme_type | TEXT | 视频类型（video/note） |
-| title | TEXT | 视频标题 |
-| author_id | TEXT | 作者ID |
-| author_name | TEXT | 作者名 |
-| create_time | INTEGER | 视频发布时间戳 |
-| download_time | INTEGER | 入库时间戳 🍴 |
-| file_path | TEXT | 文件路径 |
-| metadata | TEXT | 元数据JSON |
-| **status** | TEXT | **下载状态：`downloaded`（真实下载）/ `skipped`（手动跳过）** 🍴 |
+| `id` | INTEGER | 主键 |
+| `aweme_id` | TEXT | 作品ID |
+| `status` | TEXT | 转写状态：`success` / `failed` / `skipped` |
 
-**去重逻辑**：下载前检查 `aweme_id` 是否存在于数据库中，存在则跳过。
+### scan_records.json 🍴
 
-**区分下载状态**：通过 `status` 字段区分视频是真实下载成功（`downloaded`）还是手动标记跳过（`skipped`），便于后续统计和排查。
+文件位置：`data/scan_records.json`
+
+用于记录用户主页下载的扫描状态，支持增量更新和智能跳过。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `username` | string | 用户名 |
+| `sec_uid` | string | 用户唯一标识 |
+| `total` | int | 视频总数 |
+| `success` | int | 成功下载数 |
+| `failed` | int | 失败数 |
+| `skipped` | int | 跳过数（已存在于数据库） |
+| `parse_failed` | bool | URL解析是否失败（失败则不跳过，下次重试） |
+| `last_scan_time` | string | 上次扫描时间（用于智能跳过判断） |
+| `last_video_time` | string | 最新视频时间（用于增量更新） |
+
+**智能跳过逻辑**：4小时内已成功处理的用户主页会自动跳过，`parse_failed=true` 或 `failed>0` 的记录不会跳过。
+
+### failed_videos 🍴
+
+文件位置：`data/failed_videos/failed_YYYYMMDD.json`
+
+按日期存储的下载失败视频记录。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `aweme_id` | string | 作品ID |
+| `url` | string | 作品URL |
+| `title` | string | 作品标题 |
+| `author_name` | string | 作者名 |
+| `sec_uid` | string | 用户sec_uid |
+| `error_message` | string | 失败原因 |
+| `failed_time` | string | 失败时间 |
+| `status` | string | 状态：`failed` / `skipped` / `processed` |
+
+### download_manifest.jsonl
+
+文件位置：下载根目录下的 `download_manifest.jsonl`
+
+记录每一个成功下载的作品的详细元数据，JSONL 格式（每行一条 JSON，append-only 追加写入）。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `date` | string | 作品发布日期 |
+| `aweme_id` | string | 作品唯一标识 |
+| `author_name` | string | 作者昵称 |
+| `desc` | string | 作品描述/标题 |
+| `media_type` | string | 媒体类型（video/gallery） |
+| `tags` | list[string] | 提取的标签列表 |
+| `file_names` | list[string] | 下载的文件名列表 |
+| `file_paths` | list[string] | 下载的文件相对路径 |
+| `publish_timestamp` | int | 发布时间戳（可选） |
+| `recorded_at` | string | 清单记录时间 |
 
 ## 常见问题
 
-### 1) 只能抓到 20 条作品怎么办？
-
-这是翻页风控的常见现象。批量下载过程中如果遇到分页受限，系统会跳过该用户并记录到下载日志中。需要使用**浏览器获取下载**方式补充：
-
-```powershell
-# 方式一：浏览器获取下载（推荐）
-# 1. 通过浏览器扫描用户主页，获取完整视频链接
-.\scripts\douyin.ps1 -Action fetch-links -Url https://www.douyin.com/user/MS4wLjABAAAAxxxx
-
-# 2. 下载采集到的链接
-.\scripts\douyin.ps1 -ConfigFile config_temp.yml
-```
-
-### 2) 进度条出现重复刷屏怎么办？
-
-默认 `progress.quiet_logs: true` 会在进度阶段静默日志。  
-调试时再临时加 `--show-warnings` 或 `-v`。
-
-### 3) Cookie 失效怎么办？
-
-按以下步骤操作：
-
-```powershell
-# 1. 检查浏览器登录状态（确保已登录）
-.\scripts\douyin.ps1 -Action verify-login
-
-# 2. 刷新 Cookie（从浏览器提取最新 Cookie）
-.\scripts\douyin.ps1 -Action refresh-cookies
-```
-
-下载前系统会自动检测 Cookie 有效性，如果 Cookie 不完整会提示上述步骤。
-
-### 4) 为什么没有生成 transcript 文件？
-
-请依次检查：
-
-- `transcript.enabled` 是否为 `true`
-- 是否下载的是视频（图文不转写）
-- `OPENAI_API_KEY`（或 `transcript.api_key`）是否有效
-- `response_formats` 是否包含 `txt` 或 `json`
+| # | 问题 | 原因 | 解决方案 |
+|---|------|------|---------|
+| 1 | 只能抓到 20 条作品？ | 翻页风控限制，分页接口返回数据受限 | 使用**浏览器获取下载**方式补充：<br>1. `.\scripts\douyin.ps1 -Action fetch-links -Url <用户主页链接>`<br>2. `.\scripts\douyin.ps1 -ConfigFile config_temp.yml` |
+| 2 | 进度条出现重复刷屏？ | 进度阶段日志输出过多 | 保持默认 `progress.quiet_logs: true`<br>调试时临时加 `--show-warnings` 或 `-v` |
+| 3 | Cookie 失效怎么办？ | Cookie 过期或登录状态丢失 | 1. `.\scripts\douyin.ps1 -Action verify-login`（确认登录）<br>2. `.\scripts\douyin.ps1 -Action refresh-cookies`（刷新 Cookie）<br>下载前系统会自动检测 Cookie 有效性 |
+| 4 | 为什么没有生成 transcript 文件？ | 转写功能未启用或配置有误 | 依次检查：<br>1. `transcript.enabled` 是否为 `true`<br>2. 是否下载的是视频（图文不转写）<br>3. `OPENAI_API_KEY`（或 `transcript.api_key`）是否有效<br>4. `response_formats` 是否包含 `txt` 或 `json` |
+| 5 | 为什么下载不到新视频？🍴 | 增量更新机制跳过了已扫描内容 | 检查以下几项：<br>1. `skip_threshold_hours` 是否设置过小（设为 0 或空不跳过）<br>2. `last_video_time` 是否已更新（等待新视频或手动调整）<br>3. 数据库是否已有该 `aweme_id`（去重跳过） |
 
 ---
 
 ## 🍴 Fork 版本扩展功能
 
-> 以下是本 fork 版本在原项目基础上新增/修改的功能，上游版本可能不具备。
-
-### 1. 增量更新机制（改进版）🍴
-
-与上游不同，本 fork 版本的增量更新基于 `last_video_time`（实际视频发布时间），而非 `start_time` / `end_time`：
-
-- 记录文件：`data/scan_records.json`
-- 仅用户主页链接（`/user/{sec_uid}`）会记录扫描时间
-- 单视频/图文链接不写入扫描记录，不影响增量更新
-- 删除 `scan_records.json` 可重新开始全量下载
-- 可手动修改 `last_video_time` 字段调整增量更新起始时间
-
-**下载跳过逻辑流程：**
-
-```
-开始处理 URL
-    ↓
-┌─────────────────────────────────────────────────────┐
-│ 阶段1: URL级别跳过（skip_threshold_hours）          │
-│                                                     │
-│ 满足以下所有条件才会跳过整个URL：                    │
-│ ├─ skip_threshold_hours > 0（默认4小时）            │
-│ ├─ 存在扫描记录（data/scan_records.json）           │
-│ ├─ 上次扫描时间在阈值内（< 当前时间 - N小时）        │
-│ ├─ sec_uid 完整                                    │
-│ ├─ failed == 0（无失败记录）                        │
-│ └─ parse_failed == False（解析未失败）             │
-│                                                     │
-│ 任一条件不满足 → 继续处理                           │
-│ 全部条件满足 → 跳过整个URL，标记为 skipped          │
-└─────────────────────────────────────────────────────┘
-    ↓
-┌─────────────────────────────────────────────────────┐
-│ 阶段2: 用户作品列表过滤（仅用户主页）               │
-│                                                     │
-│ ├─ 增量更新过滤：根据 last_video_time 只保留         │
-│    比上次最新视频更新的内容                         │
-│ ├─ 数量限制过滤：根据 number.post 截取前N个视频     │
-│ └─ 若所有视频都早于过滤时间，停止分页               │
-└─────────────────────────────────────────────────────┘
-    ↓
-┌─────────────────────────────────────────────────────┐
-│ 阶段3: 单个视频去重（数据库检查）                   │
-│                                                     │
-│ 查询数据库 aweme 表：                                │
-│ SELECT id FROM aweme WHERE aweme_id = ?            │
-│                                                     │
-│ ├─ 已存在 → 跳过该视频，标记为 skipped              │
-│ └─ 不存在 → 继续下载                               │
-└─────────────────────────────────────────────────────┘
-    ↓
-┌─────────────────────────────────────────────────────┐
-│ 阶段4: 辅助资源下载控制                             │
-│                                                     │
-│ 根据配置独立控制：                                   │
-│ ├─ music: false → 跳过音乐下载                     │
-│ ├─ cover: false → 跳过封面下载                     │
-│ ├─ avatar: false → 跳过头像下载                    │
-│ └─ json: false → 跳过元数据JSON文件下载            │
-└─────────────────────────────────────────────────────┘
-```
-
-**跳过阈值（`skip_threshold_hours`）：**
-
-控制短时间内重复扫描的行为，默认值 4 小时（代码默认，可在配置文件中覆盖）：
-
-```yaml
-# config.yml（可选，不写则默认 4 小时）
-skip_threshold_hours: 4
-```
-
-| 参数值 | 行为 |
-|--------|------|
-| `4`（默认） | 4小时内已成功处理的用户将被跳过 |
-| `0` | 不跳过任何用户，每次都执行下载 |
-| 空值 | 不跳过任何用户，每次都执行下载 |
-
-> **注意**：此参数控制的是"用户级别的跳过"（阶段1），与增量更新的 `last_video_time`（阶段2）不同。即使跳过了用户，也不会影响 `scan_records.json` 中的时间记录。
-
-> **设计用途**：此配置主要为**定时任务**场景设计。当使用定时任务（如 Windows 计划任务、Linux cron）自动执行下载时，如果每次都扫描所有用户会导致资源占用过高。设置跳过阈值后，定时任务会智能跳过近期已处理的用户，只处理新的或长时间未更新的用户，降低系统负担。目前项目暂未集成定时任务功能，手动执行时此配置影响有限。
-
-**为什么下载不到新视频？**
-
-1. **阶段1 - `skip_threshold_hours` 限制**：用户在短时间内已处理过，被跳过了 → 设置为空或 `0`
-2. **阶段2 - `last_video_time` 已更新**：上次扫描时已记录最新视频时间 → 等待新视频发布，或手动调整 `last_video_time`
-3. **阶段3 - 数据库去重**：视频已在数据库中标记为已下载 → 使用 `--mark-skipped` 标记跳过，或删除数据库记录
-
-### 2. 失败视频管理与重试 🍴
-
-下载失败的视频（包括用户主页批量下载和单视频链接下载）会自动记录到 `data/failed_videos/` 目录，支持查看和重试：
-
-```powershell
-# 列出所有未处理的失败视频
-python run.py --list-failed
-
-# 重试所有失败视频
-python run.py --retry-failed -c config.yml
-
-# 将指定视频标记为跳过（写入数据库，后续下载自动跳过）
-python run.py --mark-skipped <aweme_id>
-```
-
-### 3. PowerShell 启动脚本（推荐 Windows 用户使用）🍴
-
-提供 `scripts/douyin.ps1` 统一入口脚本，支持所有操作模式：
-
-```powershell
-# 查看帮助
-.\scripts\douyin.ps1 -Action help
-
-# 下载（默认）
-.\scripts\douyin.ps1
-
-# 指定配置文件
-.\scripts\douyin.ps1 -ConfigFile config_temp.yml
-
-# 追加下载链接
-.\scripts\douyin.ps1 -Url https://v.douyin.com/xxx/
-
-# 指定线程数和下载路径
-.\scripts\douyin.ps1 -Thread 8 -Path ./Downloaded
-
-# 列出失败视频
-.\scripts\douyin.ps1 -Action list-failed
-
-# 重试失败视频
-.\scripts\douyin.ps1 -Action retry-failed
-
-# 备份数据库（重要操作前建议执行）
-.\scripts\douyin.ps1 -Action backup-db
-
-# 人工确认浏览器登录状态（打开浏览器检查是否已登录，不修改配置）
-.\scripts\douyin.ps1 -Action verify-login
-
-# 批量标记所有失败视频为跳过（执行前会自动备份数据库到 data/db_backup/）
-.\scripts\douyin.ps1 -Action mark-all-failed-skipped
-
-# 单个标记视频为跳过
-.\scripts\douyin.ps1 -Action mark-skipped -MarkAwemeId 7656278130479029862
-```
-
-**脚本优势**：
-- 自动检查配置文件是否存在
-- 自动创建下载目录（如果不存在）
-- 验证下载目录写入权限
-- 自动设置 UTF-8 编码，避免中文乱码
-- 自动解析相对路径为绝对路径
-
-**日常使用流程** 🍴：
-
-```powershell
-# ===== 通用准备操作（两种下载模式都需要）=====
-# 1. 检查浏览器登录状态（首次使用或登录过期时执行）
-.\scripts\douyin.ps1 -Action verify-login
-
-# 2. 刷新 Cookie（首次使用或登录过期时执行）
-.\scripts\douyin.ps1 -Action refresh-cookies
-
-# ===== 方式一：普通下载（直接配置链接）=====
-# 1. 配置链接到 config.yml 的 link 字段
-# 2. 执行下载
-.\scripts\douyin.ps1
-
-# ===== 方式二：浏览器获取下载（需要登录或分页受限）=====
-# 1. 通过浏览器扫描获取链接（收藏页或用户主页）
-.\scripts\douyin.ps1 -Action fetch-links              # 扫描收藏页
-.\scripts\douyin.ps1 -Action fetch-links -Url https://www.douyin.com/user/MS4wLjABAAAAxxxx  # 扫描用户主页
-
-# 2. 下载采集到的链接
-.\scripts\douyin.ps1 -ConfigFile config_temp.yml
-
-# ===== 通用后续操作 =====
-# 备份数据库（可选但推荐）
-.\scripts\douyin.ps1 -Action backup-db
-
-# 重试失败链接
-.\scripts\douyin.ps1 -Action retry-failed
-
-# 批量标记无法下载的视频为跳过（人工确认后）
-.\scripts\douyin.ps1 -Action mark-all-failed-skipped
-```
-
-### 4. 数据库备份 🍴
-
-提供 `backup-db` 命令，一键备份 `dy_downloader.db` 到 `data/db_backup/` 目录：
-
-```powershell
-# 通过 PowerShell 脚本
-.\scripts\douyin.ps1 -Action backup-db
-```
-
-每次备份生成独立的 `YYYYMMDD_HHMMSS` 时间戳目录，不会覆盖已有备份。建议在执行 `--mark-all-failed-skipped`、删除数据库记录等危险操作前手动备份。
-
-### 5. 详细错误日志 🍴
-
-下载失败时自动写入详细错误日志到 `data/error_logs/` 目录，每次执行生成一个 `.log` 文件（如 `error_20260703_074804.log`），包含：
-
-- 作品 ID、错误类型、错误信息、发生时间
-- 作品摘要信息（描述、作者、图片/视频数量、URL 特征等）
-- 附加上下文信息（来源模块、失败原因等）
-- 异常堆栈（如有）
-
-覆盖的失败场景包括：视频无可播放 URL、图片下载失败、API 获取详情失败、用户作品列表获取失败、重试失败等。执行结束后如有错误，终端会提示日志文件路径。
-
-#### HTTP 404/403 错误处理
-
-当错误日志中出现 `HTTP 404` 或 `HTTP 403` 时，可能的原因包括：
-
-- **CDN 资源过期或删除**：商业推广视频等资源生命周期较短，投放周期结束后可能被清理
-- **会员视频**：视频内容需要抖音会员才能观看，普通账号无法获取播放地址
-- **视频已删除**：作者已删除该作品
-- **私密视频**：作者将作品设为私密，仅自己可见
-- **CDN 临时故障**：抖音 CDN 节点临时不可用，稍后可能恢复
-- **地域限制**：部分视频在特定地区不可访问
-- **权限限制**：部分视频设置了访问权限，需要登录或特定账号才能观看
-
-处理建议：
-
-1. **人工确认**：将日志中的视频链接复制到浏览器中验证，确认视频是否确实无法访问
-2. **批量标记为跳过**：确认所有失败链接都无法下载后，执行以下命令批量标记为已处理
-   ```powershell
-   # 批量标记所有失败视频为跳过（执行前会自动备份数据库到 data/db_backup/）
-   .\scripts\douyin.ps1 -Action mark-all-failed-skipped
-   ```
-   该命令会将 `data/failed_videos/*.json` 中所有 `status` 为 `"failed"` 的条目标记为 `"skipped"`，并在数据库中对应记录的 `status` 设为 `"skipped"`，下次执行下载任务时会自动跳过这些记录
-
-### 6. 图文作品下载修正 🍴
-
-修复了图文作品（图集）下载的多个问题：
-
-- **媒体类型检测**：优化 `_detect_media_type` 逻辑，当图片数量 ≤1 且存在视频时优先按视频处理，避免图文作品被误判
-- **API 数据补全**：`get_video_detail` 在 aid=1128 返回数据不完整时自动用 aid=6383 重试，确保 `image_post_info` 数据完整
-- **图片 URL 容错**：图集下载支持多候选 URL 轮换，某个 URL 下载失败立即尝试下一个，不做无意义重试，5 张图下载从 60+ 秒优化到约 5 秒
-
-### 7. 文件命名调整 🍴
-
-本 fork 版本对下载目录和文件命名做了以下调整：
-
-- **不再拼接 aweme_id**：上游版本的目录名和文件名格式为 `{日期}_{标题}_{aweme_id}`，本 fork 去掉了末尾的 aweme_id，改为 `{日期}_{标题}`
-- **原因**：aweme_id 是 19 位数字，拼接后目录名和文件名都会偏长，部分标题较长的作品在 Windows 下会触发 260 字符路径长度限制导致下载失败
-- **标题截断**：标题超过 60 字符时自动截断（上游为 80），进一步避免路径过长
-- **文件夹重复处理**：当两个作品日期和标题完全相同时，会自动在文件夹名末尾递增数字区分，如 `2025-09-14_标题`、`2025-09-14_标题_1`、`2025-09-14_标题_2`...
-- **不影响去重**：aweme_id 仍记录在数据库和 `_data.json` 元数据中，去重逻辑不受影响
-- **上游已有目录**：从上游升级的用户会注意到新下载的目录名不再带 aweme_id 后缀，已有目录不受影响
-
-### 8. 数据库改动说明 🍴
-
-- **status 字段**：`aweme` 表新增 `status` 字段（默认 `downloaded`），区分真实下载和手动跳过
-- **download_time 字段**：插入记录时正确写入当前时间戳
-- **去重逻辑**：下载前检查 `aweme_id` 是否存在，存在则跳过，不再重复下载
-- **跳过标记**：`--mark-skipped` 和 `--mark-all-failed-skipped` 会将 `status` 设为 `skipped`，保留记录但不重复下载
-
-### 9. URL 间随机延迟 🍴
-
-在每个 URL 处理之间添加随机延迟，降低被限流风险：
-
-```yaml
-url_delay:
-  enabled: true       # 是否启用
-  min_seconds: 2       # 最小延迟秒数
-  max_seconds: 5       # 最大延迟秒数
-```
-
-### 10. 数据库文件 🍴
-
-本 fork 版本使用的数据库文件为项目根目录下的 `dy_downloader.db`。
-
-### 11. 人工检查登录状态 🍴
-
-建议在执行下载任务前，手动检查浏览器登录状态：
-
-```powershell
-.\scripts\douyin.ps1 -Action verify-login
-```
-
-此命令会打开浏览器，由人工确认是否已登录。浏览器用户数据目录为项目内的 `data/chrome_user_data`，而非系统默认目录。
-
-**`data/chrome_user_data` 目录的重要性**：
-
-这个目录是整个项目浏览器相关功能的核心，以下三个功能共享同一登录状态：
-
-| 功能 | 命令 | 作用 |
+> 以下是本 fork 版本与上游的主要差异。详细用法请参考前文对应章节。
+
+### 功能差异总览
+
+| 分类 | 功能点 | 上游 | Fork版本 | 详细章节 |
+|------|--------|------|----------|---------|
+| **增量更新** | 增量更新机制 | `start_time` / `end_time` 时间范围 | 基于 `last_video_time` 的增量扫描 | [增量更新下载](#增量更新下载-🍴) |
+| | 智能跳过阈值 | 无 | `skip_threshold_hours`（默认4小时） | [配置项完整参考](#增量更新配置-🍴) |
+| **失败管理** | 失败视频记录 | 无 | `data/failed_videos/` 按日期存储 | [数据结构参考](#failed_videos-🍴) |
+| | 失败重试命令 | 无 | `--list-failed` / `--retry-failed` | [命令行参数参考](#失败视频管理-🍴) |
+| | 标记跳过 | 无 | `--mark-skipped` / `--mark-all-failed-skipped` | [命令行参数参考](#失败视频管理-🍴) |
+| **数据库** | 数据库文件 | `data/douyin.db` 等 | `dy_downloader.db`（项目根目录） | [数据结构参考](#数据库表dy_downloaderdb🍴) |
+| | aweme 表扩展 | 基础字段 | 新增 `download_time`、`status` 字段 | [数据结构参考](#aweme-表) |
+| | 数据库备份 | 无 | `backup-db` 命令，自动备份到 `data/db_backup/` | [辅助脚本说明](#辅助脚本说明) |
+| **日志系统** | 详细错误日志 | 无 | `data/error_logs/` 按执行时间分文件 | [运行时数据目录](#运行时数据目录-🍴) |
+| | 下载报告 | 无 | `data/logs/download_YYYYMMDD_HHMMSS.txt` | [运行时数据目录](#下载报告-🍴) |
+| **文件命名** | 目录命名 | `{日期}_{标题}_{aweme_id}` | `{日期}_{标题}`（避免路径过长） | [输出目录](#输出目录) |
+| | 标题截断 | 80字符 | 60字符 | 输出目录 |
+| **图文下载** | 图集下载优化 | 基础支持 | 多候选 URL 轮换、下载速度优化 | 功能概览 |
+| **浏览器** | 浏览器选型 | 系统 Chrome | Playwright Chromium（统一安装） | [浏览器使用说明](#浏览器使用说明-🍴) |
+| | 用户数据目录 | 系统默认 | `data/chrome_user_data/`（项目内共享） | [浏览器使用说明](#浏览器使用说明-🍴) |
+| | 登录状态检查 | 自动脚本检测 | 人工确认（verify-login） | [辅助脚本说明](#辅助脚本说明) |
+| | 链接提取（fetch-links） | 无 | 浏览器手动滚动采集，支持收藏页/用户主页 | [典型场景](#下载个人收藏视频) |
+| **请求限流** | URL 间随机延迟 | 无 | `url_delay` 配置（默认2-5秒） | [配置项完整参考](#请求限流配置-🍴) |
+| | 默认线程数 | 多线程 | `thread: 1`（单线程，降低限流风险） | [配置项完整参考](#基础配置) |
+| **入口脚本** | PowerShell 脚本 | 无 | `scripts/douyin.ps1` 统一入口 | [辅助脚本说明](#辅助脚本说明) |
+| **辅助资源** | 默认开关 | 开启 | 默认全部关闭（`music/cover/avatar/json: false`） | [配置项完整参考](#辅助资源下载开关) |
+
+### 移除的功能
+
+| 功能 | 说明 | 原因 |
 |------|------|------|
-| 登录验证 | `verify-login` | 打开浏览器，人工确认是否已登录 |
-| Cookie 刷新 | `refresh-cookies` | 从 chrome_user_data 提取登录 Cookie，写入 `config.yml` |
-| 链接提取 | `fetch-links` | 从浏览器获取收藏视频或用户主页链接 |
-
-**工作流程**：
-
-1. **首次登录**：执行 `verify-login`，浏览器打开后扫码登录，登录状态保存到 `data/chrome_user_data`
-2. **提取 Cookie**：执行 `refresh-cookies`，脚本读取 `data/chrome_user_data` 中的登录状态，自动提取 Cookie 并写入 `config.yml`
-3. **提取链接**：执行 `fetch-links`，脚本读取 `data/chrome_user_data` 中的登录状态，无需重新登录即可访问收藏页面或用户主页
-
-> **重要提示**：只需登录一次，三个功能都可以共享这个登录状态。如果删除 `data/chrome_user_data` 目录，需要重新登录。
-
-**为什么使用项目内的用户数据目录**：
-
-- **远程调试限制**：Chrome 默认用户数据目录不允许远程调试（DevTools remote debugging），Playwright 无法正常启动
-- **环境隔离**：与系统默认 Chrome 浏览器的登录状态相互独立，不会影响系统浏览器的账号
-- **数据安全**：登录状态保存在项目目录内，便于管理和备份
-
-### 12. 浏览器获取下载（fetch-links）🍴
-
-**功能说明**：通过浏览器方式获取收藏视频或用户主页链接，适用于需要登录访问的内容或分页受限场景。详细使用方法请查看上方「典型场景」章节中的「下载方式说明」和具体场景示例。
-
-**操作流程**：
-1. 执行 `fetch-links` 后，浏览器会打开抖音收藏页面（无参数）或指定用户主页（带参数）
-2. 脚本等待页面加载完成（收藏页会校验 URL 已切换到 `showTab=favorite_collection`）
-3. 手动滚动到页面底部，加载所有需要采集的内容
-4. 滚动完成后按 Enter 键，脚本从上往下一次性扫描并采集所有已加载的视频链接
-5. 采集结果写入 `config_temp.yml`，使用 `download` 命令下载
-
-**去重机制**：
-- 自动跳过数据库中已下载/跳过的视频
-- 自动跳过 `config_temp.yml` 中已有的链接
-- 同一页面内重复出现的链接自动去重
-
-**注意事项**：
-- 需确保已登录抖音账号（登录状态保存在 `data/chrome_user_data`）
-- 收藏页采集使用精确容器选择器 `div[data-e2e="user-favorite-list"]`，用户主页采集使用 `div[data-e2e="user-post-list"]`，只采集目标区域视频，不会误捕推荐页内容
-- 滚动越到底部，收集的视频越完整
-- 每次只扫描一个用户主页（通过 `-Url` 参数指定）
-
-> **注意**：下载任务（`download`、`retry-failed`）不再自动检查登录状态，需用户手动确认。
+| `start_time` / `end_time` | 时间范围过滤配置 | 改用 `last_video_time` 增量更新机制 |
+| 自动登录状态检测 | 下载前自动检查登录 | 脚本检测不稳定，改为人工确认 |
+| `favorites.json` | 收藏链接中间文件 | 改用 `config_temp.yml` + 数据库去重 |
+| `--refresh-video-time` | 刷新扫描记录时间 | 破坏增量更新机制 |
+| `--mark-processed` | 标记处理状态 | 功能无效，未正确写入数据库 |
 
 ---
 

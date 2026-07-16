@@ -63,8 +63,10 @@ async def verify_login():
         try:
             while True:
                 await page.wait_for_timeout(500)
-        except (KeyboardInterrupt, Exception):
+        except (KeyboardInterrupt, asyncio.CancelledError):
             print("\n[完成] 浏览器已关闭")
+        except Exception as exc:
+            print(f"\n[完成] 浏览器已关闭 (原因: {exc})")
 
         await ctx.close()
         print("[完成] 脚本结束")

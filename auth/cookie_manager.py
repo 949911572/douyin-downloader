@@ -8,6 +8,7 @@ Cookie管理模块
 """
 
 import json
+import os
 from pathlib import Path
 from typing import Dict, Optional
 
@@ -39,6 +40,10 @@ class CookieManager:
         try:
             with open(self.cookie_file, "w", encoding="utf-8") as f:
                 json.dump(self.cookies, f, ensure_ascii=False, indent=2)
+            try:
+                os.chmod(self.cookie_file, 0o600)
+            except (OSError, AttributeError):
+                pass
         except Exception as e:
             logger.error(f"Failed to save cookies: {e}")
 

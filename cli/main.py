@@ -16,13 +16,14 @@ import random
 import sys
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from config import ConfigLoader
 from auth import CookieManager
 from storage import Database, FileManager
 from control import QueueManager, RateLimiter, RetryHandler
 from core import DouyinAPIClient, URLParser, DownloaderFactory, VideoDownloader
+from core.downloader_base import DownloadResult
 from cli.progress_display import ProgressDisplay
 from utils.logger import setup_logger, set_console_log_level
 from utils.scan_record_manager import ScanRecordManager
@@ -47,13 +48,13 @@ async def download_url(
     url: str,
     config: ConfigLoader,
     cookie_manager: CookieManager,
-    database: Database = None,
-    progress_reporter: ProgressDisplay = None,
-    last_video_time: str = None,  # 上次最新视频时间，用于增量更新
-    parsed_url: Dict[str, Any] = None,  # 预解析的URL结果
-    api_client=None,  # 复用的API客户端
-    error_logger: ErrorLogger = None,
-):
+    database: Optional[Database] = None,
+    progress_reporter: Optional[ProgressDisplay] = None,
+    last_video_time: Optional[str] = None,  # 上次最新视频时间，用于增量更新
+    parsed_url: Optional[Dict[str, Any]] = None,  # 预解析的URL结果
+    api_client: Optional[DouyinAPIClient] = None,  # 复用的API客户端
+    error_logger: Optional[ErrorLogger] = None,
+) -> Optional[DownloadResult]:
     if progress_reporter:
         progress_reporter.advance_step("初始化", "创建下载组件")
     file_manager = FileManager(config.get('path'))
@@ -328,7 +329,7 @@ async def main_async(args):
 
     display.show_final_summary(url_results, config, skipped_urls)
     if shared_error_logger.get_error_count() > 0:
-        print(f"\n详细错误日志已保存到: {os.path.abspath(shared_error_logger._session_file)}")
+        print(f"\n详细错误日志已保存到: {os.path.abspath(shared_error_logger.session_file)}")
 
 
 def main():
@@ -530,7 +531,7 @@ async def retry_failed_videos(config_path: str = 'config.yml'):
     print(f"重试完成: 成功 {success_count} 个, 失败 {fail_count} 个")
     print("=" * 80)
     if error_logger.get_error_count() > 0:
-        print(f"\n详细错误日志已保存到: {os.path.abspath(error_logger._session_file)}")
+        print(f"\n详细错误日志已保存到: {os.path.abspath(error_logger.session_file)}")
 
 
 def mark_failed_video(aweme_id: str):

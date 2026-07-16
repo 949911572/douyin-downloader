@@ -19,6 +19,9 @@ SCRIPT_DIR = Path(__file__).parent.resolve()
 PROJECT_DIR = SCRIPT_DIR.parent
 sys.path.insert(0, str(PROJECT_DIR))
 from utils.cookie_utils import parse_cookie_header, sanitize_cookies
+from utils.logger import setup_logger
+
+logger = setup_logger('RefreshCookies')
 
 CONFIG_PATH = PROJECT_DIR / "config.yml"
 DOUYIN_URL = "https://www.douyin.com/"
@@ -284,7 +287,8 @@ async def main() -> int:
                     token = extract_ms_token_from_text(url)
                     if token:
                         observed_mstokens.append(token)
-                except Exception:
+                except Exception as exc:
+                    logger.warning("Request interception error: %s", exc)
                     return
 
             page.on("request", _on_request)
