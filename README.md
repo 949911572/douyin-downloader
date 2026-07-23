@@ -33,15 +33,15 @@ meta:
 
 ## 版本更新提醒
 
-> ⚠️ 本项目已重大升级到 **V2.0**，后续功能迭代与问题修复将主要在 `main` 分支进行。  
+> ⚠️ 本项目已升级到 **V2.1**，后续功能迭代与问题修复将主要在 `main` 分支进行。  
 > **V1.0 仍可使用**，但仅做低频维护，不会持续高频更新。
 
 ## 目录
 
-- [功能概览](#功能概览)
-- [快速开始](#快速开始)
 - [核心术语表](#核心术语表)
 - [项目架构](#项目架构)
+- [功能概览](#功能概览)
+- [快速开始](#快速开始)
 - [最小可用配置](#最小可用配置)
 - [使用方式](#使用方式)
 - [典型场景](#典型场景)
@@ -49,10 +49,10 @@ meta:
 - [可选功能：视频转写（transcript）](#可选功能视频转写transcript)
 - [配置项完整参考](#配置项完整参考)
 - [输出目录](#输出目录)
-- [运行时数据目录](#运行时数据目录-🍴)
+- [运行时数据目录](#运行时数据目录)
 - [数据结构参考](#数据结构参考)
 - [常见问题](#常见问题)
-- [Fork 版本扩展功能](#-fork-版本扩展功能)
+- [Fork 版本扩展功能](#fork-版本扩展功能)
 
 ## 核心术语表
 
@@ -127,6 +127,7 @@ DownloaderBase (下载逻辑基类)
 | 并发下载 | 多线程下载支持 | ❌ |
 | 失败重试 | 自动重试失败任务 | ❌ |
 | 速率限制 | 请求间隔控制 | ✅ |
+| 链接随机排序 | 随机打乱下载顺序，降低爬虫识别风险 | ✅ |
 | SQLite 去重 | 基于 `aweme_id` 去重 | ❌ |
 | 增量下载 | 基于 `scan_records.json` | ✅ |
 | 进度条展示 | 支持静默模式 | ❌ |
@@ -413,17 +414,57 @@ number:
 
 **注意**：增量更新仅对用户主页链接（`/user/{sec_uid}`）生效，单视频/图文链接不写入扫描记录。
 
+### 下载跳过逻辑流程
+
+**阶段一：URL 级别跳过判断**
+- 单视频/图文链接 → **直接进入下载流程**
+- 用户主页链接 → **进入智能跳过判断**
+
+**阶段二：智能跳过判断（仅用户主页）**
+1. 检查 `scan_records.json` 中是否有该用户记录
+   - 无记录 → **继续下载**
+   - 有记录 → 进入下一步判断
+2. 判断是否强制重试
+   - `parse_failed=true` → **继续下载**（解析失败，重试）
+   - `failed > 0` → **继续下载**（有失败记录，重试）
+3. 判断是否在跳过阈值内
+   - `last_scan_time + skip_threshold_hours > 当前时间` → **跳过该用户**（4小时内已成功处理）
+   - 否则 → **继续下载**
+
+**阶段三：数据库去重检查**
+- `aweme_id` 已存在于 `aweme` 表 → **跳过**（去重）
+- `aweme_id` 不存在 → **继续下载**
+
+**阶段四：执行下载**
+- 完成实际下载操作
+
+**设计目的**：`skip_threshold_hours` 默认设置为 4 小时，用于定时任务场景，避免短时间内重复扫描同一用户主页，减少请求频率和资源消耗。
+
 ## 辅助脚本说明
 
 推荐使用 `douyin.ps1` 作为统一入口，支持所有操作模式。详细用法请查看下方「🍴 Fork 版本扩展功能」章节。
 
 | 脚本名称 | 类型 | 说明 |
 |----------|------|------|
-| `douyin.ps1` | PowerShell | **统一入口脚本**（推荐），支持下载、重试、标记跳过、检查登录、刷新 Cookie 等所有操作 🍴 |
+| `douyin.ps1` | PowerShell | **统一入口脚本**（推荐），支持下载、重试、标记跳过、检查登录、刷新 Cookie、数据库备份等所有操作 🍴 |
 | `verify_login.py` | Python | 人工确认浏览器登录状态（打开浏览器，检查/完成登录） 🍴 |
 | `fetch_links.py` | Python | 从浏览器获取收藏视频或用户主页链接 🍴 |
 | `check_cookies.py` | Python | 检查配置文件中 Cookie 字段是否完整 🍴 |
 | `_refresh_cookies.py` | Python | Cookie 刷新核心逻辑（内部脚本，建议通过 douyin.ps1 调用） 🍴 |
+
+**douyin.ps1 支持的操作模式**：
+
+| 操作 | 参数 | 说明 |
+|------|------|------|
+| `download` | `-Url`, `-ConfigFile` | 下载视频/图文/用户主页作品 |
+| `verify-login` | - | 打开浏览器确认登录状态 |
+| `refresh-cookies` | - | 刷新 Cookie 并写入配置文件 |
+| `fetch-links` | `-Url` | 从浏览器获取链接（收藏页/用户主页） |
+| `retry-failed` | - | 重试所有失败视频 |
+| `list-failed` | - | 列出所有失败视频 |
+| `mark-skipped` | `-AwemeId` | 将指定视频标记为跳过 |
+| `mark-all-failed-skipped` | - | 批量标记所有失败视频为跳过（执行前自动备份数据库） |
+| `backup-db` | - | 手动备份数据库到 `data/db_backup/` |
 
 ## 可选功能：视频转写（transcript）
 
@@ -469,108 +510,114 @@ export OPENAI_API_KEY="sk-xxxx"
 
 ### 基础配置
 
-| 配置路径 | 类型 | 默认值 | 说明 | Fork专属 | 状态 |
-|---------|------|--------|------|---------|------|
-| `link` | list[string] | `[]` | 下载链接列表，支持单视频、图文、用户主页链接 | ❌ | 已实现 |
-| `path` | string | `./Downloaded/` | 下载目录，支持相对路径和绝对路径 | ❌ | 已实现 |
-| `folderstyle` | bool | `true` | 是否按作者名和日期创建嵌套目录结构 | ❌ | 已实现 |
-| `thread` | int | `1` | 并发线程数，建议设置为 1 以降低限流风险 | ❌ | 已实现 |
-| `retry_times` | int | `3` | 单个任务重试次数（顶层配置） | ❌ | 已实现 |
-| `database` | bool | `true` | 是否启用数据库去重 | ❌ | 已实现 |
-| `skip_threshold_hours` | int | `4` | URL 级别跳过阈值，短时间内重复扫描的用户自动跳过 | ✅ | 已实现 |
+| 配置路径 | 类型 | 默认值 | 说明 | Fork专属 |
+|---------|------|--------|------|---------|
+| `link` | list[string] | `[]` | 下载链接列表，支持单视频、图文、用户主页链接 | ❌ |
+| `path` | string | `./Downloaded/` | 下载目录，支持相对路径和绝对路径 | ❌ |
+| `folderstyle` | bool | `true` | 是否按作者名和日期创建嵌套目录结构 | ❌ |
+| `thread` | int | `1` | 并发线程数，建议设置为 1 以降低限流风险 | ❌ |
+| `retry_times` | int | `3` | 单个任务重试次数（顶层配置） | ❌ |
+| `database` | bool | `true` | 是否启用数据库去重 | ❌ |
+| `skip_threshold_hours` | int | `4` | URL 级别跳过阈值，短时间内重复扫描的用户自动跳过 | ✅ |
 
 ### 辅助资源下载开关
 
-| 配置路径 | 类型 | 默认值 | 说明 | Fork专属 | 状态 |
-|---------|------|--------|------|---------|------|
-| `music` | bool | `false` | 是否下载背景音乐 | ❌ | 已实现 |
-| `cover` | bool | `false` | 是否下载封面图片 | ❌ | 已实现 |
-| `avatar` | bool | `false` | 是否下载作者头像 | ❌ | 已实现 |
-| `json` | bool | `false` | 是否下载元数据 JSON 文件 | ❌ | 已实现 |
+| 配置路径 | 类型 | 默认值 | 说明 | Fork专属 |
+|---------|------|--------|------|---------|
+| `music` | bool | `false` | 是否下载背景音乐 | ❌ |
+| `cover` | bool | `false` | 是否下载封面图片 | ❌ |
+| `avatar` | bool | `false` | 是否下载作者头像 | ❌ |
+| `json` | bool | `false` | 是否下载元数据 JSON 文件 | ❌ |
 
 ### 下载模式配置
 
-| 配置路径 | 类型 | 默认值 | 说明 | Fork专属 | 状态 |
-|---------|------|--------|------|---------|------|
-| `mode` | list[string] | `[post]` | 下载模式，目前仅支持 `post`（用户作品） | ❌ | 部分实现 |
-| `mode[].post` | - | - | 用户作品下载 | ❌ | 已实现 |
-| `mode[].like` | - | - | 点赞下载 | ❌ | [预留] 未实现 |
-| `mode[].mix` | - | - | 合集下载 | ❌ | [预留] 未实现 |
-| `mode[].allmix` | - | - | 全部合集 | ❌ | [预留] 未实现 |
-| `mode[].music` | - | - | 音乐作品 | ❌ | [预留] 未实现 |
+| 配置路径 | 类型 | 默认值 | 说明 | Fork专属 |
+|---------|------|--------|------|---------|
+| `mode` | list[string] | `[post]` | 下载模式，目前仅支持 `post`（用户作品） | ❌ |
+| `mode[].post` | - | - | 用户作品下载 | ❌ |
+| `mode[].like` | - | - | [预留] 点赞下载（未实现） | ❌ |
+| `mode[].mix` | - | - | [预留] 合集下载（未实现） | ❌ |
+| `mode[].allmix` | - | - | [预留] 全部合集（未实现） | ❌ |
+| `mode[].music` | - | - | [预留] 音乐作品（未实现） | ❌ |
 
 ### 数量限制配置
 
-| 配置路径 | 类型 | 默认值 | 说明 | Fork专属 | 状态 |
-|---------|------|--------|------|---------|------|
-| `number.post` | int | `0` | 用户作品数量限制，0 表示不限制 | ❌ | 已实现 |
-| `number.like` | int | `0` | 点赞作品数量限制 | ❌ | [预留] 未实现 |
-| `number.allmix` | int | `0` | 合集数量限制 | ❌ | [预留] 未实现 |
-| `number.mix` | int | `0` | 单个合集下载数量限制 | ❌ | [预留] 未实现 |
-| `number.music` | int | `0` | 音乐作品数量限制 | ❌ | [预留] 未实现 |
+| 配置路径 | 类型 | 默认值 | 说明 | Fork专属 |
+|---------|------|--------|------|---------|
+| `number.post` | int | `0` | 用户作品数量限制，0 表示不限制 | ❌ |
+| `number.like` | int | `0` | [预留] 点赞作品数量限制（未实现） | ❌ |
+| `number.allmix` | int | `0` | [预留] 合集数量限制（未实现） | ❌ |
+| `number.mix` | int | `0` | [预留] 单个合集下载数量限制（未实现） | ❌ |
+| `number.music` | int | `0` | [预留] 音乐作品数量限制（未实现） | ❌ |
 
 ### 增量更新配置 🍴
 
-| 配置路径 | 类型 | 默认值 | 说明 | Fork专属 | 状态 |
-|---------|------|--------|------|---------|------|
-| `increase.post` | bool | `true` | 用户作品增量更新，基于 `last_video_time` 只下载更新的内容 | ✅ | 已实现 |
-| `increase.like` | bool | `false` | 点赞作品增量更新 | ❌ | [预留] 未实现 |
-| `increase.allmix` | bool | `false` | 合集增量更新 | ❌ | [预留] 未实现 |
-| `increase.mix` | bool | `false` | 单个合集增量更新 | ❌ | [预留] 未实现 |
-| `increase.music` | bool | `false` | 音乐作品增量更新 | ❌ | [预留] 未实现 |
+| 配置路径 | 类型 | 默认值 | 说明 | Fork专属 |
+|---------|------|--------|------|---------|
+| `increase.post` | bool | `true` | 用户作品增量更新，基于 `last_video_time` 只下载更新的内容 | ✅ |
+| `increase.like` | bool | `false` | [预留] 点赞作品增量更新（未实现） | ❌ |
+| `increase.allmix` | bool | `false` | [预留] 合集增量更新（未实现） | ❌ |
+| `increase.mix` | bool | `false` | [预留] 单个合集增量更新（未实现） | ❌ |
+| `increase.music` | bool | `false` | [预留] 音乐作品增量更新（未实现） | ❌ |
 
 ### 重试配置
 
-| 配置路径 | 类型 | 默认值 | 说明 | Fork专属 | 状态 |
-|---------|------|--------|------|---------|------|
-| `retry.max_retries` | int | `3` | 最大重试次数 | ❌ | 已实现 |
-| `retry.delay` | int | `5` | 重试间隔（秒） | ❌ | 已实现 |
+| 配置路径 | 类型 | 默认值 | 说明 | Fork专属 |
+|---------|------|--------|------|---------|
+| `retry.max_retries` | int | `3` | 最大重试次数 | ❌ |
+| `retry.delay` | int | `5` | 重试间隔（秒） | ❌ |
 
 ### 进度显示配置
 
-| 配置路径 | 类型 | 默认值 | 说明 | Fork专属 | 状态 |
-|---------|------|--------|------|---------|------|
-| `progress.quiet_logs` | bool | `true` | 是否启用静默模式，减少进度阶段的日志输出 | ❌ | 已实现 |
+| 配置路径 | 类型 | 默认值 | 说明 | Fork专属 |
+|---------|------|--------|------|---------|
+| `progress.quiet_logs` | bool | `true` | 是否启用静默模式，减少进度阶段的日志输出 | ❌ |
 
 ### 视频转写配置
 
-| 配置路径 | 类型 | 默认值 | 说明 | Fork专属 | 状态 |
-|---------|------|--------|------|---------|------|
-| `transcript.enabled` | bool | `false` | 是否启用视频转写 | ❌ | 已实现 |
-| `transcript.model` | string | `gpt-4o-mini-transcribe` | 转写模型 | ❌ | 已实现 |
-| `transcript.output_dir` | string | `""` | 输出目录，留空则与视频同目录 | ❌ | 已实现 |
-| `transcript.response_formats` | list[string] | `[txt, json]` | 输出格式 | ❌ | 已实现 |
-| `transcript.api_url` | string | `https://api.openai.com/v1/audio/transcriptions` | API 地址 | ❌ | 已实现 |
-| `transcript.api_key_env` | string | `OPENAI_API_KEY` | API Key 环境变量名 | ❌ | 已实现 |
-| `transcript.api_key` | string | `""` | API Key（不推荐硬编码，使用环境变量） | ❌ | 已实现 |
+| 配置路径 | 类型 | 默认值 | 说明 | Fork专属 |
+|---------|------|--------|------|---------|
+| `transcript.enabled` | bool | `false` | 是否启用视频转写 | ❌ |
+| `transcript.model` | string | `gpt-4o-mini-transcribe` | 转写模型 | ❌ |
+| `transcript.output_dir` | string | `""` | 输出目录，留空则与视频同目录 | ❌ |
+| `transcript.response_formats` | list[string] | `[txt, json]` | 输出格式 | ❌ |
+| `transcript.api_url` | string | `https://api.openai.com/v1/audio/transcriptions` | API 地址 | ❌ |
+| `transcript.api_key_env` | string | `OPENAI_API_KEY` | API Key 环境变量名 | ❌ |
+| `transcript.api_key` | string | `""` | API Key（不推荐硬编码，使用环境变量） | ❌ |
 
 ### 浏览器兜底配置 🍴
 
-| 配置路径 | 类型 | 默认值 | 说明 | Fork专属 | 状态 |
-|---------|------|--------|------|---------|------|
-| `browser_fallback.enabled` | bool | `true` | 是否启用浏览器兜底（API 获取失败时用浏览器方式获取） | ✅ | 已实现 |
-| `browser_fallback.headless` | bool | `false` | 是否无头模式，false 显示浏览器窗口便于排错 | ✅ | 已实现 |
-| `browser_fallback.max_scrolls` | int | `240` | 最大滚动次数 | ✅ | 已实现 |
-| `browser_fallback.idle_rounds` | int | `8` | 空闲检测轮数 | ✅ | 已实现 |
-| `browser_fallback.wait_timeout_seconds` | int | `600` | 等待超时时间（秒） | ✅ | 已实现 |
+| 配置路径 | 类型 | 默认值 | 说明 | Fork专属 |
+|---------|------|--------|------|---------|
+| `browser_fallback.enabled` | bool | `true` | 是否启用浏览器兜底（API 获取失败时用浏览器方式获取） | ✅ |
+| `browser_fallback.headless` | bool | `false` | 是否无头模式，false 显示浏览器窗口便于排错 | ✅ |
+| `browser_fallback.max_scrolls` | int | `240` | 最大滚动次数 | ✅ |
+| `browser_fallback.idle_rounds` | int | `8` | 空闲检测轮数 | ✅ |
+| `browser_fallback.wait_timeout_seconds` | int | `600` | 等待超时时间（秒） | ✅ |
 
 ### 请求限流配置 🍴
 
-| 配置路径 | 类型 | 默认值 | 说明 | Fork专属 | 状态 |
-|---------|------|--------|------|---------|------|
-| `url_delay.enabled` | bool | `true` | 是否启用 URL 间随机延迟 | ✅ | 已实现 |
-| `url_delay.min_seconds` | int | `2` | 最小延迟秒数 | ✅ | 已实现 |
-| `url_delay.max_seconds` | int | `5` | 最大延迟秒数 | ✅ | 已实现 |
+| 配置路径 | 类型 | 默认值 | 说明 | Fork专属 |
+|---------|------|--------|------|---------|
+| `url_delay.enabled` | bool | `true` | 是否启用 URL 间随机延迟 | ✅ |
+| `url_delay.min_seconds` | int | `2` | 最小延迟秒数 | ✅ |
+| `url_delay.max_seconds` | int | `5` | 最大延迟秒数 | ✅ |
+
+### 链接随机配置 🍴
+
+| 配置路径 | 类型 | 默认值 | 说明 | Fork专属 |
+|---------|------|--------|------|---------|
+| `shuffle_links` | bool | `false` | 是否随机打乱 `link` 列表的下载顺序，降低被识别为爬虫的风险 | ✅ |
 
 ### Cookie 配置
 
-| 配置路径 | 类型 | 默认值 | 说明 | Fork专属 | 状态 |
-|---------|------|--------|------|---------|------|
-| `cookies.msToken` | string | `""` | msToken | ❌ | 已实现 |
-| `cookies.ttwid` | string | `""` | ttwid（必需） | ❌ | 已实现 |
-| `cookies.odin_tt` | string | `""` | odin_tt（必需） | ❌ | 已实现 |
-| `cookies.passport_csrf_token` | string | `""` | passport_csrf_token（必需） | ❌ | 已实现 |
-| `cookies.sid_guard` | string | `""` | sid_guard（推荐填写，增强稳定性） | ❌ | 已实现 |
+| 配置路径 | 类型 | 默认值 | 说明 | Fork专属 |
+|---------|------|--------|------|---------|
+| `cookies.msToken` | string | `""` | msToken | ❌ |
+| `cookies.ttwid` | string | `""` | ttwid（必需） | ❌ |
+| `cookies.odin_tt` | string | `""` | odin_tt（必需） | ❌ |
+| `cookies.passport_csrf_token` | string | `""` | passport_csrf_token（必需） | ❌ |
+| `cookies.sid_guard` | string | `""` | sid_guard（推荐填写，增强稳定性） | ❌ |
 
 ## 输出目录
 
@@ -593,34 +640,13 @@ Downloaded/
 
 > 🍴 **Fork 说明**：目录名格式为 `{日期}_{标题}`，不再拼接 aweme_id，避免 Windows 路径长度限制。aweme_id 仍记录在数据库和 `_data.json` 元数据中，不影响去重。
 
-### download_manifest.jsonl 说明
+### download_manifest.jsonl 🍴
 
 **文件用途**：记录每一个成功下载的视频/作品的详细元数据，作为独立于数据库的下载清单。
 
 **格式**：JSONL（每行一条 JSON，append-only 追加写入）
 
-**每条记录包含字段**：
-
-| 字段 | 说明 |
-|------|------|
-| `date` | 作品发布日期 |
-| `aweme_id` | 作品唯一标识 |
-| `author_name` | 作者昵称 |
-| `desc` | 作品描述/标题 |
-| `media_type` | 媒体类型（video/gallery） |
-| `tags` | 提取的标签列表 |
-| `file_names` | 下载的文件名列表 |
-| `file_paths` | 下载的文件相对路径 |
-| `publish_timestamp` | 发布时间戳（可选） |
-| `recorded_at` | 清单记录时间 |
-
-**使用场景**：
-- 下载记录追溯（即使数据库被删除）
-- 跨设备/环境同步下载历史
-- 标签/标题快速检索
-- 文件完整性验证
-
-**注意**：仅记录下载成功的作品，下载失败的作品记录在 `data/failed_videos/` 目录。
+**详细字段说明请参考** [数据结构参考](#download-manifestjsonl)。
 
 ## 运行时数据目录 🍴
 
@@ -648,23 +674,9 @@ data/
         └── dy_downloader.db
 ```
 
-### scan_records.json 字段说明 🍴
+### scan_records.json 🍴
 
-用于记录用户主页下载的扫描状态，支持增量更新和智能跳过：
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `username` | string | 用户名 |
-| `sec_uid` | string | 用户唯一标识 |
-| `total` | int | 视频总数 |
-| `success` | int | 成功下载数 |
-| `failed` | int | 失败数 |
-| `skipped` | int | 跳过数（已存在于数据库） |
-| `parse_failed` | bool | URL解析是否失败（失败则不跳过，下次重试） |
-| `last_scan_time` | string | 上次扫描时间（用于智能跳过判断） |
-| `last_video_time` | string | 最新视频时间（用于增量更新） |
-
-> **智能跳过逻辑**：4小时内已成功处理的用户主页会自动跳过，`parse_failed=true` 或 `failed>0` 的记录不会跳过。
+用于记录用户主页下载的扫描状态，支持增量更新和智能跳过。详细字段说明请参考 [scan_records.json](#scan_recordsjson)。
 
 ### 下载报告 🍴
 
@@ -751,7 +763,7 @@ data/
 | `failed_time` | string | 失败时间 |
 | `status` | string | 状态：`failed` / `skipped` / `processed` |
 
-### download_manifest.jsonl
+### download_manifest.jsonl 🍴
 
 文件位置：下载根目录下的 `download_manifest.jsonl`
 
@@ -790,25 +802,26 @@ data/
 
 | 分类 | 功能点 | 上游 | Fork版本 | 详细章节 |
 |------|--------|------|----------|---------|
-| **增量更新** | 增量更新机制 | `start_time` / `end_time` 时间范围 | 基于 `last_video_time` 的增量扫描 | [增量更新下载](#增量更新下载-🍴) |
-| | 智能跳过阈值 | 无 | `skip_threshold_hours`（默认4小时） | [配置项完整参考](#增量更新配置-🍴) |
-| **失败管理** | 失败视频记录 | 无 | `data/failed_videos/` 按日期存储 | [数据结构参考](#failed_videos-🍴) |
-| | 失败重试命令 | 无 | `--list-failed` / `--retry-failed` | [命令行参数参考](#失败视频管理-🍴) |
-| | 标记跳过 | 无 | `--mark-skipped` / `--mark-all-failed-skipped` | [命令行参数参考](#失败视频管理-🍴) |
-| **数据库** | 数据库文件 | `data/douyin.db` 等 | `dy_downloader.db`（项目根目录） | [数据结构参考](#数据库表dy_downloaderdb🍴) |
+| **增量更新** | 增量更新机制 | `start_time` / `end_time` 时间范围 | 基于 `last_video_time` 的增量扫描 | [增量更新下载](#增量更新下载) |
+| | 智能跳过阈值 | 无 | `skip_threshold_hours`（默认4小时） | [配置项完整参考](#增量更新配置) |
+| **失败管理** | 失败视频记录 | 无 | `data/failed_videos/` 按日期存储 | [数据结构参考](#failed-videos) |
+| | 失败重试命令 | 无 | `--list-failed` / `--retry-failed` | [命令行参数参考](#失败视频管理) |
+| | 标记跳过 | 无 | `--mark-skipped` / `--mark-all-failed-skipped` | [命令行参数参考](#失败视频管理) |
+| **数据库** | 数据库文件 | `data/douyin.db` 等 | `dy_downloader.db`（项目根目录） | [数据结构参考](#数据库表dy-downloaderdb) |
 | | aweme 表扩展 | 基础字段 | 新增 `download_time`、`status` 字段 | [数据结构参考](#aweme-表) |
 | | 数据库备份 | 无 | `backup-db` 命令，自动备份到 `data/db_backup/` | [辅助脚本说明](#辅助脚本说明) |
-| **日志系统** | 详细错误日志 | 无 | `data/error_logs/` 按执行时间分文件 | [运行时数据目录](#运行时数据目录-🍴) |
-| | 下载报告 | 无 | `data/logs/download_YYYYMMDD_HHMMSS.txt` | [运行时数据目录](#下载报告-🍴) |
+| **日志系统** | 详细错误日志 | 无 | `data/error_logs/` 按执行时间分文件 | [运行时数据目录](#运行时数据目录) |
+| | 下载报告 | 无 | `data/logs/download_YYYYMMDD_HHMMSS.txt` | [运行时数据目录](#下载报告) |
 | **文件命名** | 目录命名 | `{日期}_{标题}_{aweme_id}` | `{日期}_{标题}`（避免路径过长） | [输出目录](#输出目录) |
 | | 标题截断 | 80字符 | 60字符 | 输出目录 |
 | **图文下载** | 图集下载优化 | 基础支持 | 多候选 URL 轮换、下载速度优化 | 功能概览 |
-| **浏览器** | 浏览器选型 | 系统 Chrome | Playwright Chromium（统一安装） | [浏览器使用说明](#浏览器使用说明-🍴) |
-| | 用户数据目录 | 系统默认 | `data/chrome_user_data/`（项目内共享） | [浏览器使用说明](#浏览器使用说明-🍴) |
+| **浏览器** | 浏览器选型 | 系统 Chrome | Playwright Chromium（统一安装） | [浏览器使用说明](#浏览器使用说明) |
+| | 用户数据目录 | 系统默认 | `data/chrome_user_data/`（项目内共享） | [浏览器使用说明](#浏览器使用说明) |
 | | 登录状态检查 | 自动脚本检测 | 人工确认（verify-login） | [辅助脚本说明](#辅助脚本说明) |
 | | 链接提取（fetch-links） | 无 | 浏览器手动滚动采集，支持收藏页/用户主页 | [典型场景](#下载个人收藏视频) |
-| **请求限流** | URL 间随机延迟 | 无 | `url_delay` 配置（默认2-5秒） | [配置项完整参考](#请求限流配置-🍴) |
+| **请求限流** | URL 间随机延迟 | 无 | `url_delay` 配置（默认2-5秒） | [配置项完整参考](#请求限流配置) |
 | | 默认线程数 | 多线程 | `thread: 1`（单线程，降低限流风险） | [配置项完整参考](#基础配置) |
+| | 链接随机排序 | 无 | `shuffle_links` 配置，随机打乱下载顺序 | [配置项完整参考](#链接随机配置) |
 | **入口脚本** | PowerShell 脚本 | 无 | `scripts/douyin.ps1` 统一入口 | [辅助脚本说明](#辅助脚本说明) |
 | **辅助资源** | 默认开关 | 开启 | 默认全部关闭（`music/cover/avatar/json: false`） | [配置项完整参考](#辅助资源下载开关) |
 

@@ -111,3 +111,67 @@ path: ./Downloaded/
 
     loader_b = ConfigLoader(str(config_file))
     assert loader_b.get("progress", {}).get("quiet_logs") is True
+
+
+def test_shuffle_links_disabled_by_default(tmp_path):
+    config_file = tmp_path / "config.yml"
+    config_file.write_text(
+        """
+link:
+  - https://www.douyin.com/video/1
+  - https://www.douyin.com/video/2
+  - https://www.douyin.com/video/3
+path: ./Downloaded/
+"""
+    )
+
+    loader = ConfigLoader(str(config_file))
+    links = loader.get_links()
+    assert links == [
+        "https://www.douyin.com/video/1",
+        "https://www.douyin.com/video/2",
+        "https://www.douyin.com/video/3",
+    ]
+
+
+def test_shuffle_links_enabled(tmp_path):
+    config_file = tmp_path / "config.yml"
+    config_file.write_text(
+        """
+link:
+  - https://www.douyin.com/video/1
+  - https://www.douyin.com/video/2
+  - https://www.douyin.com/video/3
+  - https://www.douyin.com/video/4
+  - https://www.douyin.com/video/5
+path: ./Downloaded/
+shuffle_links: true
+"""
+    )
+
+    loader = ConfigLoader(str(config_file))
+    links = loader.get_links()
+    assert len(links) == 5
+    assert set(links) == {
+        "https://www.douyin.com/video/1",
+        "https://www.douyin.com/video/2",
+        "https://www.douyin.com/video/3",
+        "https://www.douyin.com/video/4",
+        "https://www.douyin.com/video/5",
+    }
+
+
+def test_shuffle_links_single_link_not_shuffled(tmp_path):
+    config_file = tmp_path / "config.yml"
+    config_file.write_text(
+        """
+link:
+  - https://www.douyin.com/video/1
+path: ./Downloaded/
+shuffle_links: true
+"""
+    )
+
+    loader = ConfigLoader(str(config_file))
+    links = loader.get_links()
+    assert links == ["https://www.douyin.com/video/1"]

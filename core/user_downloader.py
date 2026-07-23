@@ -7,7 +7,7 @@
 - 多模式下载（post/like/mix等）
 """
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 from datetime import datetime
 
 from core.downloader_base import BaseDownloader, DownloadResult
@@ -19,7 +19,11 @@ logger = setup_logger("UserDownloader")
 
 
 class UserDownloader(BaseDownloader):
-    async def download(self, parsed_url: Dict[str, Any], last_video_time: str = None) -> DownloadResult:
+    async def download(
+        self,
+        parsed_url: Dict[str, Any],
+        last_video_time: Optional[str] = None,
+    ) -> DownloadResult:
         result = DownloadResult()
 
         sec_uid = parsed_url.get("sec_uid")
@@ -221,20 +225,9 @@ class UserDownloader(BaseDownloader):
         if pagination_restricted:
             author_name = user_info.get("nickname", "unknown")
             user_url = f"https://www.douyin.com/user/{sec_uid}"
-            self._progress_update_step("拉取作品列表", "分页受限，跳过浏览器回补")
+            self._progress_update_step("拉取作品列表", "分页受限，需要手动浏览器补充")
             logger.warning(
                 f"用户 {author_name}({sec_uid}) 分页受限，建议手动使用浏览器扫描"
-            )
-            self.error_logger.log_error(
-                sec_uid,
-                "pagination_restricted",
-                f"用户 {author_name} 分页受限，需要手动使用浏览器扫描补充",
-                extra={
-                    "sec_uid": sec_uid,
-                    "author_name": author_name,
-                    "url": user_url,
-                    "source": "user_downloader",
-                },
             )
             result.pagination_restricted = True
 

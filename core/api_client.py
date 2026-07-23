@@ -11,13 +11,13 @@
 from __future__ import annotations
 
 import asyncio
-import random
 from typing import Any, Dict, List, Optional, Tuple
 import re
 from urllib.parse import urlencode, urlparse, urlunparse
 
 import aiohttp
 from auth import MsTokenManager
+from control.rate_limiter import RateLimiter
 from utils.cookie_utils import sanitize_cookies
 from utils.logger import setup_logger
 from utils.xbogus import XBogus
@@ -48,11 +48,12 @@ class DouyinAPIClient:
         "login_time",
     }
 
-    def __init__(self, cookies: Dict[str, str]):
+    def __init__(self, cookies: Dict[str, str], rate_limiter: Optional[RateLimiter] = None):
         self.cookies = sanitize_cookies(cookies or {})
         self._session: Optional[aiohttp.ClientSession] = None
         self._browser_post_aweme_items: Dict[str, Dict[str, Any]] = {}
         self._browser_post_stats: Dict[str, int] = {}
+        self._rate_limiter = rate_limiter or RateLimiter(max_per_second=1.2, jitter=0.6)
         self.headers = {
             "User-Agent": (
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -93,8 +94,7 @@ class DouyinAPIClient:
 
     async def _rate_limit(self):
         """请求限流延迟，避免触发平台限流"""
-        delay = random.uniform(0.8, 2.0)  # 0.8-2秒随机延迟
-        await asyncio.sleep(delay)
+        await self._rate_limiter.acquire()
 
     async def get_session(self) -> aiohttp.ClientSession:
         await self._ensure_session()

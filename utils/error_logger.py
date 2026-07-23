@@ -3,6 +3,10 @@ import traceback
 from datetime import datetime
 from typing import Any, Dict, Optional
 
+from utils.logger import setup_logger
+
+logger = setup_logger("ErrorLogger")
+
 
 class ErrorLogger:
     def __init__(self, data_dir: str = "data"):
@@ -22,7 +26,7 @@ class ErrorLogger:
         aweme_data: Optional[Dict[str, Any]] = None,
         extra: Optional[Dict[str, Any]] = None,
         exc_info: Optional[Exception] = None,
-    ):
+    ) -> None:
         lines = []
         lines.append("=" * 70)
         lines.append(f"时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
@@ -88,12 +92,12 @@ class ErrorLogger:
 
         return "\n".join(lines)
 
-    def _write(self, content: str):
+    def _write(self, content: str) -> None:
         try:
             with open(self._session_file, "a", encoding="utf-8") as f:
                 f.write(content)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to write error log to %s: %s", self._session_file, e)
 
     def get_error_count(self) -> int:
         return self._error_count

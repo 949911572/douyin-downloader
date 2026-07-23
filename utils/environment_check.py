@@ -16,6 +16,8 @@ def check_python_version() -> bool:
 
 
 def check_dependencies() -> bool:
+    from importlib.metadata import version, PackageNotFoundError
+
     required_packages = [
         ('aiohttp', '3.9.0', 'aiohttp'),
         ('aiofiles', '23.2.1', 'aiofiles'),
@@ -26,14 +28,40 @@ def check_dependencies() -> bool:
         ('gmssl', '3.2.2', 'gmssl'),
         ('playwright', '1.40.0', 'playwright'),
     ]
+
+    def _version_ge(installed: str, minimum: str) -> bool:
+        inst_parts = [int(p) for p in installed.split('.') if p.isdigit()]
+        min_parts = [int(p) for p in minimum.split('.') if p.isdigit()]
+        max_len = max(len(inst_parts), len(min_parts))
+        inst_parts += [0] * (max_len - len(inst_parts))
+        min_parts += [0] * (max_len - len(min_parts))
+        return inst_parts >= min_parts
     
     missing_packages = []
+    outdated_packages = []
     for import_name, min_version, pkg_name in required_packages:
         try:
             __import__(import_name)
-            print(f"✓ 依赖包: {pkg_name}")
         except ImportError:
             missing_packages.append((pkg_name, min_version))
+            continue
+
+        try:
+            installed_version = version(pkg_name)
+        except PackageNotFoundError:
+            installed_version = None
+
+        if installed_version:
+            try:
+                if _version_ge(installed_version, min_version):
+                    print(f"✓ 依赖包: {pkg_name} ({installed_version})")
+                else:
+                    outdated_packages.append((pkg_name, installed_version, min_version))
+                    print(f"⚠ 依赖包: {pkg_name} (当前 {installed_version}, 要求 >= {min_version})")
+            except Exception:
+                print(f"✓ 依赖包: {pkg_name}")
+        else:
+            print(f"✓ 依赖包: {pkg_name}")
     
     if missing_packages:
         print("\n❌ 缺少以下依赖包:")
@@ -42,6 +70,9 @@ def check_dependencies() -> bool:
             print(f"     影响: 核心功能无法运行")
         print(f"\n   建议: 运行 pip install -r requirements.txt")
         return False
+
+    if outdated_packages:
+        print(f"\n⚠  {len(outdated_packages)} 个依赖包版本偏低，可能存在兼容性问题")
     
     return True
 

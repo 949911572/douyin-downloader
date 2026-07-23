@@ -50,4 +50,5 @@ DEFAULT_CONFIG: Dict[str, Any] = {
         "min_seconds": 2,
         "max_seconds": 5,
     },
+    "shuffle_links": False,
 }

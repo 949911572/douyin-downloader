@@ -172,7 +172,11 @@ class BaseDownloader(ABC):
         return headers
 
     @abstractmethod
-    async def download(self, parsed_url: Dict[str, Any]) -> DownloadResult:
+    async def download(
+        self,
+        parsed_url: Dict[str, Any],
+        last_video_time: Optional[str] = None,
+    ) -> DownloadResult:
         pass
 
     async def _should_download(self, aweme_id: str) -> bool:

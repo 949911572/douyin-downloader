@@ -6,7 +6,7 @@
 - 失败重试和错误记录
 """
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from core.downloader_base import BaseDownloader, DownloadResult
 from utils.logger import setup_logger
@@ -16,7 +16,11 @@ logger = setup_logger('VideoDownloader')
 
 
 class VideoDownloader(BaseDownloader):
-    async def download(self, parsed_url: Dict[str, Any]) -> DownloadResult:
+    async def download(
+        self,
+        parsed_url: Dict[str, Any],
+        last_video_time: Optional[str] = None,
+    ) -> DownloadResult:
         result = DownloadResult()
 
         aweme_id = parsed_url.get('aweme_id')

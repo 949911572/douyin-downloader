@@ -35,7 +35,9 @@ class ScanRecordManager:
                 self.records = {}
         else:
             # 确保目录存在
-            os.makedirs(os.path.dirname(self.record_file), exist_ok=True)
+            dir_path = os.path.dirname(self.record_file)
+            if dir_path:
+                os.makedirs(dir_path, exist_ok=True)
             self.records = {}
     
     def _save_records(self):
@@ -216,11 +218,11 @@ class ScanRecordManager:
     
     def mark_parse_failed(self, url: str):
         """标记解析失败"""
+        now = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         record = self.get_record(url)
         if record:
             record['parse_failed'] = True
-            record['last_scan_time'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-            self._save_records()
+            record['last_scan_time'] = now
         else:
             self.records[url] = {
                 'username': '',
@@ -230,10 +232,10 @@ class ScanRecordManager:
                 'failed': 0,
                 'skipped': 0,
                 'parse_failed': True,
-                'last_scan_time': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'last_scan_time': now,
                 'last_video_time': ''
             }
-            self._save_records()
+        self._save_records()
     
     def get_all_records(self) -> Dict[str, Dict]:
         """获取所有记录"""

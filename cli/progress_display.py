@@ -3,11 +3,9 @@ from __future__ import annotations
 import sys
 import os
 from datetime import datetime
-from typing import Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from rich.table import Table
-
-console = None
 
 
 def _display_width(s: str) -> int:
@@ -172,50 +170,22 @@ class ProgressDisplay:
 
     def show_final_summary(self, url_results, config, skipped_urls=None):
         now = datetime.now()
-        now_str = now.strftime('%Y-%m-%d %H:%M:%S')
         timestamp = now.strftime('%Y%m%d_%H%M%S')
 
         target_path = config.get('path', '未设置')
 
-        lines = []
-        lines.append("=" * 64)
-
-        user_links = []
-        video_links = []
-        failed_links = []
-        
-        user_total = 0
-        user_skipped = 0
-        user_success = 0
-        user_failed = 0
-        
-        video_total = 0
-        video_skipped = 0
-        video_success = 0
-        video_failed = 0
-
-        for url, result, status in url_results:
-            if status == "failed" or result is None:
-                failed_links.append(url)
-            else:
-                sec_uid = getattr(result, 'sec_uid', '') or ''
-                if sec_uid:
-                    user_links.append((url, result))
-                    user_total += result.total
-                    user_skipped += result.skipped
-                    user_success += result.success
-                    user_failed += result.failed
-                else:
-                    video_links.append((url, result))
-                    video_total += result.total
-                    video_skipped += result.skipped
-                    video_success += result.success
-                    video_failed += result.failed
+        (
+            user_links, video_links, failed_links,
+            user_stats, video_stats,
+        ) = self._classify_results(url_results)
 
         user_count = len(user_links)
         video_count = len(video_links)
         failed_count = len(failed_links)
         skipped_count = len(skipped_urls) if skipped_urls else 0
+
+        lines: List[str] = []
+        lines.append("=" * 64)
 
         if user_count > 0 and video_count > 0:
             lines.append("  抖音下载 · 执行结果报告")
@@ -223,227 +193,26 @@ class ProgressDisplay:
             lines.append("  抖音批量下载 · 执行结果报告")
         else:
             lines.append("  抖音视频下载 · 执行结果报告")
-        
+
         lines.append("=" * 64)
         lines.append(f"  目标目录:    {target_path}")
         lines.append("")
 
-        if user_count > 0:
-            lines.append("=" * 64)
-            lines.append(f"【用户主页下载】（链接数：{user_count}）")
-            lines.append("=" * 64)
-            lines.append("")
-            
-            for idx, (url, result) in enumerate(user_links, 1):
-                author = getattr(result, 'author_name', '') or '未知'
-                sec_uid = getattr(result, 'sec_uid', '') or ''
-                total = result.total
-                skipped = result.skipped
-                success = result.success
-                failed = result.failed
+        self._format_user_section(lines, user_links, user_count)
+        self._format_video_section(lines, video_links, video_count)
+        self._format_failed_section(lines, failed_links, failed_count)
+        self._format_skipped_section(lines, skipped_urls, skipped_count, user_count)
+        self._format_restricted_section(lines, url_results)
+        self._format_summary_section(lines, user_count, video_count, user_stats, video_stats)
+        self._format_error_summary(lines, url_results)
 
-                lines.append(f"  {idx}，{author}[{sec_uid}]/{total}/{skipped}/{success}/{failed}")
-                
-                downloaded_files = getattr(result, 'downloaded_files', []) or []
-                success_items = [f for f in downloaded_files if f.get('success')]
-                if success_items:
-                    lines.append(f"    成功下载视频 ({len(success_items)} 个):")
-                    for item in success_items:
-                        aweme_id = item.get('aweme_id', '')
-                        file_name = item.get('file_name', '')
-                        desc_short = (item.get('desc', '') or '')[:30]
-                        if aweme_id:
-                            video_url = f"https://www.douyin.com/video/{aweme_id}"
-                            lines.append(f"      - {video_url} | {desc_short}... | {file_name}")
-                        else:
-                            lines.append(f"      - {file_name} | {desc_short}...")
-                
-                failed_items = getattr(result, 'failed_items', []) or []
-                if failed_items:
-                    lines.append(f"    下载失败视频 ({len(failed_items)} 个):")
-                    for aweme_id, error_desc in failed_items:
-                        if aweme_id and aweme_id != 'unknown':
-                            video_url = f"https://www.douyin.com/video/{aweme_id}"
-                            lines.append(f"      - {video_url} | {error_desc}")
-                        else:
-                            lines.append(f"      - {error_desc}")
-                
-                lines.append("")
-
-        if video_count > 0:
-            lines.append("=" * 64)
-            lines.append(f"【单视频链接下载】（链接数：{video_count}）")
-            lines.append("=" * 64)
-            lines.append("")
-
-            for idx, (url, result) in enumerate(video_links, 1):
-                author = getattr(result, 'author_name', '') or '未知'
-                total = result.total
-                skipped = result.skipped
-                success = result.success
-                failed = result.failed
-
-                lines.append(f"  {idx}，{url}")
-                if author != '未知':
-                    lines.append(f"      作者: {author}")
-                lines.append(f"      状态: 总数 {total} / 跳过 {skipped} / 成功 {success} / 失败 {failed}")
-                
-                downloaded_files = getattr(result, 'downloaded_files', []) or []
-                success_items = [f for f in downloaded_files if f.get('success')]
-                if success_items:
-                    lines.append(f"      成功下载:")
-                    for item in success_items:
-                        aweme_id = item.get('aweme_id', '')
-                        desc_short = (item.get('desc', '') or '')[:30]
-                        if aweme_id:
-                            video_url = f"https://www.douyin.com/video/{aweme_id}"
-                            lines.append(f"        - {video_url} | {desc_short}...")
-                        else:
-                            file_name = item.get('file_name', '')
-                            lines.append(f"        - {file_name} | {desc_short}...")
-                
-                failed_items = getattr(result, 'failed_items', []) or []
-                if failed_items:
-                    lines.append(f"      下载失败:")
-                    for aweme_id, error_desc in failed_items:
-                        if aweme_id and aweme_id != 'unknown':
-                            video_url = f"https://www.douyin.com/video/{aweme_id}"
-                            lines.append(f"        - {video_url} | {error_desc}")
-                        else:
-                            lines.append(f"        - {error_desc}")
-                
-                lines.append("")
-
-        lines.append("=" * 64)
-        lines.append(f"【解析失败链接】（链接数：{failed_count}）")
-        lines.append("=" * 64)
-        if failed_count > 0:
-            for idx, url in enumerate(failed_links, 1):
-                lines.append(f"  {idx}. {url}")
-        lines.append("")
-
-        if user_count > 0 and skipped_count > 0:
-            lines.append("=" * 64)
-            lines.append(f"【智能跳过用户】（用户数：{skipped_count}）")
-            lines.append("=" * 64)
-            if skipped_urls and len(skipped_urls) > 0:
-                for idx, item in enumerate(skipped_urls, 1):
-                    if len(item) >= 3:
-                        url, username, sec_uid = item[0], item[1], item[2]
-                        if sec_uid:
-                            lines.append(f"  {idx}，{username}[{sec_uid}] - 本地记录显示4小时内已成功处理，本次跳过")
-                        else:
-                            lines.append(f"  {idx}，{username} - 本地记录显示4小时内已成功处理，本次跳过")
-            lines.append("")
-
-        restricted_users = []
-        for url, result, status in url_results:
-            if status != "failed" and result is not None:
-                sec_uid = getattr(result, 'sec_uid', '') or ''
-                if sec_uid and getattr(result, 'pagination_restricted', False):
-                    restricted_users.append((url, result))
-
-        if restricted_users:
-            lines.append("=" * 64)
-            lines.append(f"【分页受限用户】（用户数：{len(restricted_users)}）")
-            lines.append("=" * 64)
-            lines.append("  需要手动使用浏览器扫描补充的用户列表：")
-            lines.append("")
-            for idx, (url, result) in enumerate(restricted_users, 1):
-                author = getattr(result, 'author_name', '') or '未知'
-                sec_uid = getattr(result, 'sec_uid', '') or ''
-                user_url = f"https://www.douyin.com/user/{sec_uid}" if sec_uid else url
-                lines.append(f"  {idx}. 用户：{author}")
-                lines.append(f"     地址：{user_url}")
-                lines.append(f"     命令：.\\scripts\\douyin.ps1 -Action fetch-links -Url {user_url}")
-                lines.append("")
-
-        lines.append("=" * 64)
-        lines.append("【总计统计】")
-        lines.append("=" * 64)
-        
-        if user_count > 0:
-            lines.append(f"  用户主页下载:")
-            lines.append(f"      待下载: {user_total} 个")
-            lines.append(f"      成功:   {user_success} 个")
-            lines.append(f"      跳过:   {user_skipped} 个")
-            lines.append(f"      失败:   {user_failed} 个")
-        
-        if video_count > 0:
-            if user_count > 0:
-                lines.append("")
-            lines.append(f"  单视频链接下载:")
-            lines.append(f"      待下载: {video_total} 个")
-            lines.append(f"      成功:   {video_success} 个")
-            lines.append(f"      跳过:   {video_skipped} 个")
-            lines.append(f"      失败:   {video_failed} 个")
-        
-        total_all = user_total + video_total
-        total_success = user_success + video_success
-        total_skipped = user_skipped + video_skipped
-        total_failed = user_failed + video_failed
-        
-        if total_all > 0:
-            lines.append("")
-            lines.append(f"  合计:")
-            lines.append(f"      待下载: {total_all} 个")
-            lines.append(f"      成功:   {total_success} 个")
-            lines.append(f"      跳过:   {total_skipped} 个")
-            lines.append(f"      失败:   {total_failed} 个")
-        
-        all_failed_items = []
-        for url, result, status in url_results:
-            if result is not None:
-                failed_items = getattr(result, 'failed_items', []) or []
-                all_failed_items.extend(failed_items)
-        
-        if all_failed_items:
-            error_counts = {}
-            for aweme_id, error_desc in all_failed_items:
-                if "HTTP 404" in error_desc:
-                    key = "HTTP 404 - 资源未找到"
-                elif "HTTP 403" in error_desc:
-                    key = "HTTP 403 - 访问被拒绝"
-                elif "获取视频详情失败" in error_desc:
-                    key = "获取视频详情失败"
-                elif "视频无可播放URL" in error_desc:
-                    key = "视频无可播放URL"
-                elif "无法构建无水印视频URL" in error_desc:
-                    key = "无法构建无水印视频URL"
-                elif "图文作品无图片URL" in error_desc:
-                    key = "图文作品无图片URL"
-                elif "不支持的媒体类型" in error_desc:
-                    key = "不支持的媒体类型"
-                elif "Missing aweme_id" in error_desc:
-                    key = "缺失视频ID"
-                else:
-                    key = "其他下载失败"
-                error_counts[key] = error_counts.get(key, 0) + 1
-            
-            lines.append("")
-            lines.append("=" * 64)
-            lines.append("【失败原因分类】")
-            lines.append("=" * 64)
-            for key, count in error_counts.items():
-                lines.append(f"  {key}: {count} 个")
-            
-            has_http_error = any("HTTP" in k for k in error_counts.keys())
-            if has_http_error:
-                lines.append("")
-                lines.append("  提示：HTTP 404/403 可能因视频源不可用、CDN资源过期或删除、地域限制、权限限制或临时网络问题导致")
-        
         lines.append("")
         lines.append("=" * 64)
 
         output = '\n'.join(lines)
         print(output)
 
-        log_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'data', 'logs'))
-        os.makedirs(log_dir, exist_ok=True)
-        log_filename = datetime.now().strftime('download_%Y%m%d_%H%M%S.txt')
-        log_path = os.path.join(log_dir, log_filename)
-        with open(log_path, 'w', encoding='utf-8') as f:
-            f.write(output)
+        log_path = self._write_summary_log(output)
 
         from utils.failed_video_manager import FailedVideoManager
         failed_manager = FailedVideoManager()
@@ -454,6 +223,294 @@ class ProgressDisplay:
         if failed_count_total > 0:
             print(f"失败视频记录已保存到: {failed_dir}")
             print(f"当前未处理失败视频总数: {failed_count_total}")
+
+        # 统计分页受限用户数量并提示
+        restricted_count = sum(
+            1 for _, result, status in url_results
+            if status != "failed" and result is not None
+            and getattr(result, 'sec_uid', '')
+            and getattr(result, 'pagination_restricted', False)
+        )
+        if restricted_count > 0:
+            print("\n" + "=" * 64)
+            print(f"⚠ 发现 {restricted_count} 个用户分页受限，需要手动浏览器扫描补充")
+            print("=" * 64)
+            print("请对以下用户执行浏览器扫描命令：")
+            for _, result, status in url_results:
+                if status != "failed" and result is not None:
+                    sec_uid = getattr(result, 'sec_uid', '') or ''
+                    if sec_uid and getattr(result, 'pagination_restricted', False):
+                        author = getattr(result, 'author_name', '') or '未知'
+                        user_url = f"https://www.douyin.com/user/{sec_uid}"
+                        print(f"  - 用户: {author}")
+                        print(f"    命令: .\\scripts\\douyin.ps1 -Action fetch-links -Url {user_url}")
+            print("=" * 64)
+
+    def _classify_results(
+        self, url_results: List[Tuple[str, Any, str]]
+    ) -> Tuple[
+        List[Tuple[str, Any]],
+        List[Tuple[str, Any]],
+        List[str],
+        Dict[str, int],
+        Dict[str, int],
+    ]:
+        user_links: List[Tuple[str, Any]] = []
+        video_links: List[Tuple[str, Any]] = []
+        failed_links: List[str] = []
+
+        user_stats = {'total': 0, 'skipped': 0, 'success': 0, 'failed': 0}
+        video_stats = {'total': 0, 'skipped': 0, 'success': 0, 'failed': 0}
+
+        for url, result, status in url_results:
+            if status == "failed" or result is None:
+                failed_links.append(url)
+                continue
+            sec_uid = getattr(result, 'sec_uid', '') or ''
+            if sec_uid:
+                user_links.append((url, result))
+                user_stats['total'] += result.total
+                user_stats['skipped'] += result.skipped
+                user_stats['success'] += result.success
+                user_stats['failed'] += result.failed
+            else:
+                video_links.append((url, result))
+                video_stats['total'] += result.total
+                video_stats['skipped'] += result.skipped
+                video_stats['success'] += result.success
+                video_stats['failed'] += result.failed
+
+        return user_links, video_links, failed_links, user_stats, video_stats
+
+    def _format_user_section(self, lines: List[str], user_links, user_count: int):
+        if user_count == 0:
+            return
+        lines.append("=" * 64)
+        lines.append(f"【用户主页下载】（链接数：{user_count}）")
+        lines.append("=" * 64)
+        lines.append("")
+
+        for idx, (url, result) in enumerate(user_links, 1):
+            author = getattr(result, 'author_name', '') or '未知'
+            sec_uid = getattr(result, 'sec_uid', '') or ''
+            total = result.total
+            skipped = result.skipped
+            success = result.success
+            failed = result.failed
+
+            lines.append(f"  {idx}，{author}[{sec_uid}]/{total}/{skipped}/{success}/{failed}")
+
+            downloaded_files = getattr(result, 'downloaded_files', []) or []
+            success_items = [f for f in downloaded_files if f.get('success')]
+            if success_items:
+                lines.append(f"    成功下载视频 ({len(success_items)} 个):")
+                for item in success_items:
+                    aweme_id = item.get('aweme_id', '')
+                    file_name = item.get('file_name', '')
+                    desc_short = (item.get('desc', '') or '')[:30]
+                    if aweme_id:
+                        video_url = f"https://www.douyin.com/video/{aweme_id}"
+                        lines.append(f"      - {video_url} | {desc_short}... | {file_name}")
+                    else:
+                        lines.append(f"      - {file_name} | {desc_short}...")
+
+            failed_items = getattr(result, 'failed_items', []) or []
+            if failed_items:
+                lines.append(f"    下载失败视频 ({len(failed_items)} 个):")
+                for aweme_id, error_desc in failed_items:
+                    if aweme_id and aweme_id != 'unknown':
+                        video_url = f"https://www.douyin.com/video/{aweme_id}"
+                        lines.append(f"      - {video_url} | {error_desc}")
+                    else:
+                        lines.append(f"      - {error_desc}")
+
+            lines.append("")
+
+    def _format_video_section(self, lines: List[str], video_links, video_count: int):
+        if video_count == 0:
+            return
+        lines.append("=" * 64)
+        lines.append(f"【单视频链接下载】（链接数：{video_count}）")
+        lines.append("=" * 64)
+        lines.append("")
+
+        for idx, (url, result) in enumerate(video_links, 1):
+            author = getattr(result, 'author_name', '') or '未知'
+            total = result.total
+            skipped = result.skipped
+            success = result.success
+            failed = result.failed
+
+            lines.append(f"  {idx}，{url}")
+            if author != '未知':
+                lines.append(f"      作者: {author}")
+            lines.append(f"      状态: 总数 {total} / 跳过 {skipped} / 成功 {success} / 失败 {failed}")
+
+            downloaded_files = getattr(result, 'downloaded_files', []) or []
+            success_items = [f for f in downloaded_files if f.get('success')]
+            if success_items:
+                lines.append(f"      成功下载:")
+                for item in success_items:
+                    aweme_id = item.get('aweme_id', '')
+                    desc_short = (item.get('desc', '') or '')[:30]
+                    if aweme_id:
+                        video_url = f"https://www.douyin.com/video/{aweme_id}"
+                        lines.append(f"        - {video_url} | {desc_short}...")
+                    else:
+                        file_name = item.get('file_name', '')
+                        lines.append(f"        - {file_name} | {desc_short}...")
+
+            failed_items = getattr(result, 'failed_items', []) or []
+            if failed_items:
+                lines.append(f"      下载失败:")
+                for aweme_id, error_desc in failed_items:
+                    if aweme_id and aweme_id != 'unknown':
+                        video_url = f"https://www.douyin.com/video/{aweme_id}"
+                        lines.append(f"        - {video_url} | {error_desc}")
+                    else:
+                        lines.append(f"        - {error_desc}")
+
+            lines.append("")
+
+    def _format_failed_section(self, lines: List[str], failed_links, failed_count: int):
+        lines.append("=" * 64)
+        lines.append(f"【解析失败链接】（链接数：{failed_count}）")
+        lines.append("=" * 64)
+        if failed_count > 0:
+            for idx, url in enumerate(failed_links, 1):
+                lines.append(f"  {idx}. {url}")
+        lines.append("")
+
+    def _format_skipped_section(self, lines: List[str], skipped_urls, skipped_count: int, user_count: int):
+        if user_count == 0 or skipped_count == 0:
+            return
+        lines.append("=" * 64)
+        lines.append(f"【智能跳过用户】（用户数：{skipped_count}）")
+        lines.append("=" * 64)
+        if skipped_urls and len(skipped_urls) > 0:
+            for idx, item in enumerate(skipped_urls, 1):
+                if len(item) >= 3:
+                    url, username, sec_uid = item[0], item[1], item[2]
+                    if sec_uid:
+                        lines.append(f"  {idx}，{username}[{sec_uid}] - 本地记录显示4小时内已成功处理，本次跳过")
+                    else:
+                        lines.append(f"  {idx}，{username} - 本地记录显示4小时内已成功处理，本次跳过")
+        lines.append("")
+
+    def _format_restricted_section(self, lines: List[str], url_results):
+        restricted_users: List[Tuple[str, Any]] = []
+        for url, result, status in url_results:
+            if status != "failed" and result is not None:
+                sec_uid = getattr(result, 'sec_uid', '') or ''
+                if sec_uid and getattr(result, 'pagination_restricted', False):
+                    restricted_users.append((url, result))
+
+        if not restricted_users:
+            return
+
+        lines.append("=" * 64)
+        lines.append(f"【分页受限用户】（用户数：{len(restricted_users)}）")
+        lines.append("=" * 64)
+        lines.append("  需要手动使用浏览器扫描补充的用户列表：")
+        lines.append("")
+        for idx, (url, result) in enumerate(restricted_users, 1):
+            author = getattr(result, 'author_name', '') or '未知'
+            sec_uid = getattr(result, 'sec_uid', '') or ''
+            user_url = f"https://www.douyin.com/user/{sec_uid}" if sec_uid else url
+            lines.append(f"  {idx}. 用户：{author}")
+            lines.append(f"     地址：{user_url}")
+            lines.append(f"     命令：.\\scripts\\douyin.ps1 -Action fetch-links -Url {user_url}")
+            lines.append("")
+
+    def _format_summary_section(
+        self, lines: List[str], user_count: int, video_count: int,
+        user_stats: Dict[str, int], video_stats: Dict[str, int],
+    ):
+        lines.append("=" * 64)
+        lines.append("【总计统计】")
+        lines.append("=" * 64)
+
+        if user_count > 0:
+            lines.append(f"  用户主页下载:")
+            lines.append(f"      待下载: {user_stats['total']} 个")
+            lines.append(f"      成功:   {user_stats['success']} 个")
+            lines.append(f"      跳过:   {user_stats['skipped']} 个")
+            lines.append(f"      失败:   {user_stats['failed']} 个")
+
+        if video_count > 0:
+            if user_count > 0:
+                lines.append("")
+            lines.append(f"  单视频链接下载:")
+            lines.append(f"      待下载: {video_stats['total']} 个")
+            lines.append(f"      成功:   {video_stats['success']} 个")
+            lines.append(f"      跳过:   {video_stats['skipped']} 个")
+            lines.append(f"      失败:   {video_stats['failed']} 个")
+
+        total_all = user_stats['total'] + video_stats['total']
+        total_success = user_stats['success'] + video_stats['success']
+        total_skipped = user_stats['skipped'] + video_stats['skipped']
+        total_failed = user_stats['failed'] + video_stats['failed']
+
+        if total_all > 0:
+            lines.append("")
+            lines.append(f"  合计:")
+            lines.append(f"      待下载: {total_all} 个")
+            lines.append(f"      成功:   {total_success} 个")
+            lines.append(f"      跳过:   {total_skipped} 个")
+            lines.append(f"      失败:   {total_failed} 个")
+
+    def _format_error_summary(self, lines: List[str], url_results):
+        all_failed_items: List[Tuple[str, str]] = []
+        for url, result, status in url_results:
+            if result is not None:
+                failed_items = getattr(result, 'failed_items', []) or []
+                all_failed_items.extend(failed_items)
+
+        if not all_failed_items:
+            return
+
+        error_counts: Dict[str, int] = {}
+        for aweme_id, error_desc in all_failed_items:
+            if "HTTP 404" in error_desc:
+                key = "HTTP 404 - 资源未找到"
+            elif "HTTP 403" in error_desc:
+                key = "HTTP 403 - 访问被拒绝"
+            elif "获取视频详情失败" in error_desc:
+                key = "获取视频详情失败"
+            elif "视频无可播放URL" in error_desc:
+                key = "视频无可播放URL"
+            elif "无法构建无水印视频URL" in error_desc:
+                key = "无法构建无水印视频URL"
+            elif "图文作品无图片URL" in error_desc:
+                key = "图文作品无图片URL"
+            elif "不支持的媒体类型" in error_desc:
+                key = "不支持的媒体类型"
+            elif "Missing aweme_id" in error_desc:
+                key = "缺失视频ID"
+            else:
+                key = "其他下载失败"
+            error_counts[key] = error_counts.get(key, 0) + 1
+
+        lines.append("")
+        lines.append("=" * 64)
+        lines.append("【失败原因分类】")
+        lines.append("=" * 64)
+        for key, count in error_counts.items():
+            lines.append(f"  {key}: {count} 个")
+
+        has_http_error = any("HTTP" in k for k in error_counts.keys())
+        if has_http_error:
+            lines.append("")
+            lines.append("  提示：HTTP 404/403 可能因视频源不可用、CDN资源过期或删除、地域限制、权限限制或临时网络问题导致")
+
+    def _write_summary_log(self, output: str) -> str:
+        log_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'data', 'logs'))
+        os.makedirs(log_dir, exist_ok=True)
+        log_filename = datetime.now().strftime('download_%Y%m%d_%H%M%S.txt')
+        log_path = os.path.join(log_dir, log_filename)
+        with open(log_path, 'w', encoding='utf-8') as f:
+            f.write(output)
+        return log_path
 
     def print_info(self, message: str):
         if self._is_running:

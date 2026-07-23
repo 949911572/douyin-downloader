@@ -33,17 +33,14 @@ class StringProcessor:
 
     类方法:
 
-        to_ord_str(s: str) -> str:
-            将字符串转换为 ASCII 码字符串。
+        bytes_to_str(s: bytes) -> str:
+            将字节序列转换为字符串。
 
-        to_ord_array(s: str) -> List[int]:
+        str_to_ord_array(s: str) -> List[int]:
             将字符串转换为 ASCII 码列表。
 
-        to_char_str(s: str) -> str:
-            将 ASCII 码列表转换为字符串。
-
-        to_char_array(s: str) -> List[int]:
-            将字符串转换为 ASCII 码列表。
+        ints_to_str(s: List[int]) -> str:
+            将整数列表转换为字符串。
 
         js_shift_right(val: int, n: int) -> int:
             实现 JavaScript 中的无符号右移运算。
@@ -53,21 +50,17 @@ class StringProcessor:
 
     使用示例:
     ```python
-        # 将字符串转换为 ASCII 码字符串
-        ord_str = StringProcessor.to_ord_str("Hello, World!")
-        print(ord_str)
+        # 将字节序列转换为字符串
+        byte_str = StringProcessor.bytes_to_str(b"Hello")
+        print(byte_str)
 
         # 将字符串转换为 ASCII 码列表
-        ord_array = StringProcessor.to_ord_array("Hello, World!")
+        ord_array = StringProcessor.str_to_ord_array("Hello, World!")
         print(ord_array)
 
-        # 将 ASCII 码列表转换为字符串
-        char_str = StringProcessor.to_char_str(ord_array)
+        # 将整数列表转换为字符串
+        char_str = StringProcessor.ints_to_str([72, 101, 108, 108, 111])
         print(char_str)
-
-        # 将字符串转换为 ASCII 码列表
-        char_array = StringProcessor.to_char_array("Hello, World!")
-        print(char_array)
 
         # 实现 JavaScript 中的无符号右移运算
         shifted_val = StringProcessor.js_shift_right(10, 2)
@@ -80,20 +73,20 @@ class StringProcessor:
     """
 
     @staticmethod
-    def to_ord_str(s: str) -> str:
+    def bytes_to_str(s: bytes) -> str:
         """
-        将字符串转换为 ASCII 码字符串 (Convert a string to an ASCII code string).
+        将字节序列转换为字符串，每个字节对应一个字符 (Convert a byte sequence to a string, each byte maps to one character).
 
         Args:
-            s (str): 输入字符串 (Input string).
+            s (bytes): 输入字节序列 (Input byte sequence).
 
         Returns:
-            str: 转换后的 ASCII 码字符串 (Converted ASCII code string).
+            str: 转换后的字符串 (Converted string).
         """
-        return "".join([chr(i) for i in s])
+        return "".join([chr(b) for b in s])
 
     @staticmethod
-    def to_ord_array(s: str) -> List[int]:
+    def str_to_ord_array(s: str) -> List[int]:
         """
         将字符串转换为 ASCII 码列表 (Convert a string to a list of ASCII codes).
 
@@ -106,30 +99,17 @@ class StringProcessor:
         return [ord(char) for char in s]
 
     @staticmethod
-    def to_char_str(s: str) -> str:
+    def ints_to_str(s: List[int]) -> str:
         """
-        将 ASCII 码列表转换为字符串 (Convert a list of ASCII codes to a string).
+        将整数列表转换为字符串，每个整数对应一个字符 (Convert a list of integers to a string, each integer maps to one character).
 
         Args:
-            s (str): ASCII 码列表 (List of ASCII codes).
+            s (List[int]): ASCII 码列表 (List of ASCII codes).
 
         Returns:
             str: 转换后的字符串 (Converted string).
         """
         return "".join([chr(i) for i in s])
-
-    @staticmethod
-    def to_char_array(s: str) -> List[int]:
-        """
-        将字符串转换为 ASCII 码列表 (Convert a string to a list of ASCII codes).
-
-        Args:
-            s (str): 输入字符串 (Input string).
-
-        Returns:
-            List[int]: 转换后的 ASCII 码列表 (Converted list of ASCII codes).
-        """
-        return [ord(char) for char in s]
 
     @staticmethod
     def js_shift_right(val: int, n: int) -> int:
@@ -349,7 +329,7 @@ class CryptoUtility:
             str: 处理后的字符串 (Processed string).
         """
         # 将字节列表转换为字符字符串
-        bytes_str = StringProcessor.to_char_str(bytes_list)
+        bytes_str = StringProcessor.ints_to_str(bytes_list)
         result_str = []
         index_b = self.big_array[1]
         initial_value = 0
@@ -741,7 +721,7 @@ class ABogus:
         )
         array3 = self.crypto_utility.params_to_array(
             self.crypto_utility.base64_encode(
-                StringProcessor.to_ord_str(
+                StringProcessor.bytes_to_str(
                     self.crypto_utility.rc4_encrypt(self.ua_key, self.user_agent)
                 ),
                 1,
@@ -817,7 +797,7 @@ class ABogus:
         sorted_values = [ab_dir.get(i, 0) for i in self.sort_index]
 
         # 将浏览器指纹转换为 ASCII 码列表
-        edge_fp_array = StringProcessor.to_char_array(self.browser_fp)
+        edge_fp_array = StringProcessor.str_to_ord_array(self.browser_fp)
 
         # 将浏览器指纹长度的低 8 位作为异或值
         ab_xor = (len(self.browser_fp) & 255) >> 8 & 255

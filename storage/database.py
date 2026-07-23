@@ -95,9 +95,34 @@ class Database:
         self._initialized = True
 
     async def is_downloaded(self, aweme_id: str) -> bool:
+        """检查作品是否已记录（包括已下载和已跳过）。
+
+        Args:
+            aweme_id: 作品ID
+
+        Returns:
+            bool: 如果作品已存在于数据库中返回 True（下载或跳过状态均算）
+        """
         async with aiosqlite.connect(self.db_path) as db:
             cursor = await db.execute(
                 'SELECT id FROM aweme WHERE aweme_id = ?',
+                (aweme_id,)
+            )
+            result = await cursor.fetchone()
+            return result is not None
+
+    async def is_skipped(self, aweme_id: str) -> bool:
+        """检查作品是否被标记为跳过。
+
+        Args:
+            aweme_id: 作品ID
+
+        Returns:
+            bool: 如果作品状态为 skipped 返回 True
+        """
+        async with aiosqlite.connect(self.db_path) as db:
+            cursor = await db.execute(
+                "SELECT id FROM aweme WHERE aweme_id = ? AND status = 'skipped'",
                 (aweme_id,)
             )
             result = await cursor.fetchone()

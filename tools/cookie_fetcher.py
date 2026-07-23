@@ -139,10 +139,25 @@ async def capture_cookies(args: argparse.Namespace) -> int:
 
 
 def is_timeout_error(exc: Exception) -> bool:
-    return exc.__class__.__name__ == "TimeoutError" or "Timeout" in str(exc)
+    if isinstance(exc, TimeoutError):
+        return True
+    try:
+        from playwright.sync_api import Error as PlaywrightError
+        from playwright.async_api import TimeoutError as PlaywrightTimeoutError
+        if isinstance(exc, (PlaywrightError, PlaywrightTimeoutError)):
+            return "Timeout" in str(exc)
+    except ImportError:
+        pass
+    return "Timeout" in str(exc)
 
 
 def is_target_closed_error(exc: Exception) -> bool:
+    try:
+        from playwright.sync_api import Error as PlaywrightError
+        if isinstance(exc, PlaywrightError):
+            return "Target page, context or browser has been closed" in str(exc)
+    except ImportError:
+        pass
     return (
         exc.__class__.__name__ == "TargetClosedError"
         or "Target page, context or browser has been closed" in str(exc)

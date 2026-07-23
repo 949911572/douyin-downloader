@@ -1,6 +1,7 @@
 import logging
 import sys
 from pathlib import Path
+from typing import Optional
 
 _global_console_handler = None
 
@@ -8,7 +9,7 @@ _global_console_handler = None
 def setup_logger(
     name: str = "dy-downloader",
     level: int = logging.INFO,
-    log_file: str = None,
+    log_file: Optional[str] = None,
     console_level: int = logging.CRITICAL,
 ) -> logging.Logger:
     global _global_console_handler
@@ -18,6 +19,8 @@ def setup_logger(
     logger.propagate = False
 
     if logger.handlers:
+        for handler in logger.handlers:
+            handler.setLevel(level)
         return logger
 
     formatter = logging.Formatter(

@@ -3,12 +3,15 @@ from typing import List, Optional, Union
 
 
 def parse_timestamp(timestamp: Union[int, str], fmt: str = '%Y-%m-%d %H:%M:%S') -> str:
-    if isinstance(timestamp, str):
-        timestamp = int(timestamp)
-    return datetime.fromtimestamp(timestamp).strftime(fmt)
+    try:
+        if isinstance(timestamp, str):
+            timestamp = int(timestamp)
+        return datetime.fromtimestamp(timestamp).strftime(fmt)
+    except (ValueError, TypeError, OSError):
+        return str(timestamp)
 
 
-def format_size(bytes_size: int) -> str:
+def format_size(bytes_size: Union[int, float]) -> str:
     for unit in ['B', 'KB', 'MB', 'GB']:
         if bytes_size < 1024.0:
             return f"{bytes_size:.2f} {unit}"

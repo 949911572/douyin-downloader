@@ -96,6 +96,10 @@ url_delay:
   min_seconds: 2              # 最小延迟（秒）
   max_seconds: 5              # 最大延迟（秒）
 
+# 随机打乱链接顺序，降低被识别为爬虫的风险
+# 开启后，config.yml 中 link 列表的顺序会被随机打乱后再执行下载
+shuffle_links: true
+
 # ==================== Cookie 配置 ====================
 # 抖音登录 Cookie，用于访问需要登录的内容
 # 推荐使用 .\scripts\douyin.ps1 -Action refresh-cookies 自动获取

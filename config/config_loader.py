@@ -1,4 +1,5 @@
 import os
+import random
 from copy import deepcopy
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -52,8 +53,12 @@ class ConfigLoader:
             env_config["cookie"] = os.getenv("DOUYIN_COOKIE")
         if os.getenv("DOUYIN_PATH"):
             env_config["path"] = os.getenv("DOUYIN_PATH")
-        if os.getenv("DOUYIN_THREAD"):
-            env_config["thread"] = int(os.getenv("DOUYIN_THREAD"))
+        thread_env = os.getenv("DOUYIN_THREAD")
+        if thread_env:
+            try:
+                env_config["thread"] = int(thread_env)
+            except ValueError:
+                logger.warning("Invalid DOUYIN_THREAD value: %s, ignoring", thread_env)
         return env_config
 
     def update(self, **kwargs):
@@ -86,7 +91,14 @@ class ConfigLoader:
     def get_links(self) -> List[str]:
         links = self.config.get("link", [])
         if isinstance(links, str):
-            return [links]
+            links = [links]
+
+        if self.config.get("shuffle_links", False) and len(links) > 1:
+            shuffled = links[:]
+            random.shuffle(shuffled)
+            logger.info("Link order shuffled (%d links)", len(shuffled))
+            return shuffled
+
         return links
 
     def validate(self) -> bool:
@@ -104,7 +116,6 @@ class ConfigLoader:
         if not download_path:
             errors.append("配置错误：未配置下载路径 (path)")
         else:
-            import os
             path = os.path.dirname(download_path) or download_path
             if not os.path.exists(path):
                 try:
